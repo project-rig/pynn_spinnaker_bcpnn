@@ -5,21 +5,30 @@
 #include <cstring>
 
 // Common includes
-#include "../../common/exp_decay_lut.h"
-#include "../../common/log.h"
+#include "common/exp_decay_lut.h"
+#include "common/log.h"
 
 // Synapse processor includes
-#include "../plasticity/post_events.h"
+#include "synapse_processor/plasticity/post_events.h"
 
 // BCPNN includes
 #include "ln_lut.h"
+
+// Namespaces
+using namespace Common::FixedPointNumber;
 
 //-----------------------------------------------------------------------------
 // BCPNN::SynapseTypes::BCPNN
 //-----------------------------------------------------------------------------
 namespace BCPNN
 {
-template<typename C, unsigned int D, unsigned int I, unsigned int T>
+template<typename C, unsigned int D, unsigned int I,
+  unsigned int StarFixedPoint, unsigned int TraceFixedPoint,
+  unsigned int TauZiLUTNumEntries, unsigned int TauZiLUTShift,
+  unsigned int TauZjLUTNumEntries, unsigned int TauZjLUTShift,
+  unsigned int TauPLUTNumEntries, unsigned int TauPLUTShift,
+  unsigned int LnLUTShift,
+  unsigned int T>
 class BCPNN
 {
 private:
@@ -43,7 +52,7 @@ private:
   typedef Pair Trace;
   typedef Trace PreTrace;
   typedef Trace PostTrace;
-  typedef Plasticity::PostEventHistory<PostTrace, T> PostEventHistory;
+  typedef SynapseProcessor::Plasticity::PostEventHistory<PostTrace, T> PostEventHistory;
 
   //-----------------------------------------------------------------------------
   // Constants
@@ -51,6 +60,7 @@ private:
   static const unsigned int PreTraceWords = (sizeof(PreTrace) / 4) + (((sizeof(PreTrace) % 4) == 0) ? 0 : 1);
   static const uint32_t DelayMask = ((1 << D) - 1);
   static const uint32_t IndexMask = ((1 << I) - 1);
+  static const int32_t StarFixedPointOne = (1 << StarFixedPoint);
 
 public:
   //-----------------------------------------------------------------------------
@@ -91,7 +101,7 @@ public:
       LOG_PRINT(LOG_LEVEL_TRACE, "\t\tAdding pre-synaptic event to trace at tick:%u",
                 tick);
       // Calculate new pre-trace
-      newPreTrace = UpdateTrace(tick, lastPreTrace, lastPreTick, m_TauZiLUT);
+      newPreTrace = UpdateTrace(tick, true, lastPreTrace, lastPreTick, m_TauZiLUT);
       
       // Write back updated last presynaptic spike time and trace to row
       dmaBuffer[4] = tick;
@@ -142,15 +152,11 @@ public:
         LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying post-synaptic event at delayed tick:%u",
                   delayedPostTick);
 
-        // Apply post-synaptic spike to Pij*
-        /*pIJStar = ApplySpike(delayedPostTick, postWindow.GetNextTrace(),
-                             delayedLastPreTick, lastPreTrace,
-                             postWindow.GetPrevTime(), postWindow.GetPrevTrace());
-        */
-        pIJStar = ApplySpike(delayedPostTick,
-                             delayedLastUpdateTick, pIJStar,
-                             delayedLastPreTick, lastPreTrace,
-                             m_TauZiLUT);
+        // Update correlation based on post-spike
+        pIJStar = UpdateCorrelation(delayedPostTick, true,
+                                    delayedLastUpdateTick, pIJStar,
+                                    delayedLastPreTick, lastPreTrace,
+                                    m_TauZiLUT);
 
         // Update
         delayedLastUpdateTick = delayedPostTick;
@@ -159,32 +165,31 @@ public:
         postWindow.Next(delayedPostTick);
       }
 
-      // If this isn't a flush
-      if(!flush)
-      {
-        const uint32_t delayedPreTick = tick + delayAxonal;
-        LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying pre-synaptic event at tick:%u, last post tick:%u",
-                  delayedPreTick, postWindow.GetPrevTime());
+      const uint32_t delayedPreTick = tick + delayAxonal;
+      LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying pre-synaptic event at tick:%u, last post tick:%u",
+                delayedPreTick, postWindow.GetPrevTime());
 
-        // Apply pre-synaptic spike to Pij*
-        pIJStar = ApplySpike(delayedPreTick,
-                             delayedLastUpdateTick, pIJStar,
-                             postWindow.GetPrevTime(), postWindow.GetPrevTrace(),
-                             m_TauZjLUT);
-      }
+      // Update correlation based on pre-spike/flush
+      pIJStar = UpdateCorrelation(delayedPreTick, !flush,
+                                  delayedLastUpdateTick, pIJStar,
+                                  postWindow.GetPrevTime(), postWindow.GetPrevTrace(),
+                                  m_TauZjLUT);
 
+      // **TODO** seperate cases 1) Flush - update last pre to time of last post spike and u
       // Calculate final state after all updates
-      auto finalState = updateState.CalculateFinalState(m_WeightDependence);
+      PlasticSynapse finalState = CalculateFinalState(pIJStar, delayedPreTick,
+                                                      lastPreTick, lastPreTrace,
+                                                      postWindow.GetPrevTime(), postWindow.GetPrevTrace());
 
       // If this isn't a flush, add weight to ring-buffer
       if(!flush)
       {
         applyInputFunction(delayDendritic + delayAxonal + tick,
-          postIndex, finalState.GetWeight());
+          postIndex, finalState.m_HalfWords[0]);
       }
 
       // Write back updated synaptic word to plastic region
-      *plasticWords++ = finalState.GetPlasticSynapse();
+      *plasticWords++ = finalState.m_Word;
     }
 
     // Write back row and all plastic data to SDRAM
@@ -196,7 +201,7 @@ public:
   void AddPostSynapticSpike(uint tick, unsigned int neuronID)
   {
     // If neuron ID is valid
-    if(neuronID < 512)
+    if(neuronID < 256)
     {
       LOG_PRINT(LOG_LEVEL_TRACE, "Adding post-synaptic event to trace at tick:%u",
                 tick);
@@ -206,7 +211,7 @@ public:
 
       // Update last trace entry based on spike at tick
       // and add new trace and time to post history
-      PostTrace trace = UpdateTrace(tick, postHistory.GetLastTrace(),
+      PostTrace trace = UpdateTrace(tick, true, postHistory.GetLastTrace(),
                                     postHistory.GetLastTime(), m_TauZjLUT);
       postHistory.Add(tick, trace);
     }
@@ -218,21 +223,32 @@ public:
     return 5 + PreTraceWords + GetNumPlasticWords(rowSynapses) + GetNumControlWords(rowSynapses);
   }
 
-  bool ReadSDRAMData(uint32_t *region, uint32_t flags)
+  bool ReadSDRAMData(uint32_t *region, uint32_t)
   {
-    LOG_PRINT(LOG_LEVEL_INFO, "SynapseTypes::STDP::ReadSDRAMData");
+    LOG_PRINT(LOG_LEVEL_INFO, "BCPNN::BCPNN::ReadSDRAMData");
 
-    // Read timing dependence data
-    if(!m_TimingDependence.ReadSDRAMData(region, flags))
-    {
-      return false;
-    }
+    // Copy plasticity region data from region
+    m_Ai = *reinterpret_cast<int32_t*>(region++);
+    m_Aj = *reinterpret_cast<int32_t*>(region++);
+    m_Aij = *reinterpret_cast<int32_t*>(region++);
 
-    // Read weight dependence data
-    if(!m_WeightDependence.ReadSDRAMData(region, flags))
-    {
-      return false;
-    }
+    m_Epsilon = *reinterpret_cast<int32_t*>(region++);
+    m_EpsilonSquared = *reinterpret_cast<int32_t*>(region++);
+
+    m_PHI = *reinterpret_cast<int32_t*>(region++);
+
+    m_MaxWeight = *reinterpret_cast<int32_t*>(region++);
+
+    m_Mode = *region++;
+
+    LOG_PRINT(LOG_LEVEL_INFO, "\tAi:%d, Aj:%d, Aij:%d, epsilon:%d, epsilon squared:%d, phi:%d, max weight:%d, mode:%08x",
+              m_Ai, m_Aj, m_Aij, m_Epsilon, m_EpsilonSquared, m_PHI, m_MaxWeight, m_Mode);
+
+    // Copy LUTs from subsequent memory
+    m_TauZiLUT.ReadSDRAMData(region);
+    m_TauZjLUT.ReadSDRAMData(region);
+    m_TauPLUT.ReadSDRAMData(region);
+    m_LnLUT.ReadSDRAMData(region);
 
     return true;
   }
@@ -244,37 +260,42 @@ private:
   int32_t GetP(Trace trace, int32_t a)
   {
     // Extrace components from trace and scale by A
-    int32_t zStar = __smulbb(a, trace.m_Word);
-    int32_t pStar = __smulbt(a, trace.m_Word);
+    const int32_t zStar = __smulbb(a, trace.m_Word);
+    const int32_t pStar = __smulbt(a, trace.m_Word);
 
     // Now, if only we could subtract with __smlabt :)
-    return (zStar - pStar) >> 9;
+    return (zStar - pStar) >> StarFixedPoint;
   }
 
   int32_t GetPij(Trace preTrace, Trace postTrace, int32_t pijStar)
   {
-    int32_t correlation = Mul16<9>(preTrace.m_Word, postTrace.m_Word);
+    const int32_t correlation = Mul16<9>(preTrace.m_Word, postTrace.m_Word);
 
-    return STAR_FIXED_MUL_32X32(m_Aij, correlation - pijStar);
+    return StarMul32(m_Aij, correlation - pijStar);
   }
 
   template<typename TauZLUT>
-  Trace UpdateTrace(uint32_t tick, Trace lastTrace, uint32_t lastTick, const TauZLUT &tauZLut)
+  Trace UpdateTrace(uint32_t tick, bool spike,
+                    Trace lastTrace, uint32_t lastTick,
+                    const TauZLUT &tauZLut)
   {
     // Get time since last spike
-    uint32_t elapsedTicks = tick - lastTick;
+    const uint32_t elapsedTicks = tick - lastTick;
 
     // Lookup exponential decay over delta-time with both time constants
-    int32_t zStarDecay =  tauZLut.Get(elapsedTicks);
-    int32_t pStarDecay = m_TauPLUT(elapsedTicks);
+    const int32_t zStarDecay =  tauZLut.Get(elapsedTicks);
+    const int32_t pStarDecay = m_TauPLUT.Get(elapsedTicks);
 
     // Calculate new trace values
-    int32_t newZStar = __smulbb(zStarDecay, lastTrace.m_Word) >> 9;
-    int32_t newPStar = __smulbt(pStarDecay, lastTrace.m_Word) >> 9;
+    int32_t newZStar = __smulbb(zStarDecay, lastTrace.m_Word) >> StarFixedPoint;
+    int32_t newPStar = __smulbt(pStarDecay, lastTrace.m_Word) >> StarFixedPoint;
 
     // Add energy caused by new spike to trace
-    newZStar += S229One;
-    newPStar += S229One;
+    if(spike)
+    {
+      newZStar += StarFixedPointOne;
+      newPStar += StarFixedPointOne;
+    }
 
     LOG_PRINT(LOG_LEVEL_TRACE, "\t\tElapsed ticks:%u, Z*:%d, P*:%d, Z* decay:%d, P* decay:%d, New Z*:%d, New P*:%d\n",
       elapsedTicks, lastTrace.m_HalfWords[0], lastTrace.m_HalfWords[1],
@@ -285,28 +306,29 @@ private:
   }
 
   template<typename TauZLUT>
-  int32_t ApplySpike(uint32_t tick,
-                     uint32_t lastUpdateTick, int32_t lastPIJStar
-                     uint32_t lastOtherTick, Trace lastOtherTrace, /*, bool flush, */
-                     const TauZLUT &otherTauZLut)
+  int32_t UpdateCorrelation(uint32_t tick, bool spike,
+                            uint32_t lastUpdateTick, int32_t lastPIJStar,
+                            uint32_t lastOtherTick, Trace lastOtherTrace,
+                            const TauZLUT &otherTauZLut)
   {
     // Get time since last update of Pij*
-    uint32_t elapsedTicks = tick - lastUpdateTick;
+    const uint32_t elapsedTicks = tick - lastUpdateTick;
 
     // Decay Pij*
-    int32_t pStarDecay = m_TauPLUT.Get(elapsedTicks);
+    const int32_t pStarDecay = m_TauPLUT.Get(elapsedTicks);
     int32_t newPIJStar = __smulbb(lastPIJStar, pStarDecay);
 
-    //if(!flush)
-    //{
+    if(spike)
+    {
       uint32_t otherTraceElapsedTicks = tick - lastOtherTick;
       int32_t otherTraceZStarDecay = otherTauZLut.Get(otherTraceElapsedTicks);
 
-      newPIJStar = __smlabb(lastOtherTrace, otherTraceZStarDecay, newPIJStar);
-    //}
-    newPIJStar >>= STAR_FIXED_POINT;
+      newPIJStar = __smlabb(lastOtherTrace.m_Word, otherTraceZStarDecay, newPIJStar);
+    }
+    newPIJStar >>= StarFixedPoint;
 
-    log_debug("\t\t\tApplying deferred spike - New Pij*:%d", newPIJStar);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying deferred spike - New Pij*:%d",
+              newPIJStar);
 
     // Build new trace structure and return
     return newPIJStar;
@@ -316,32 +338,33 @@ private:
     uint32_t lastPreTick, Trace lastPreTrace,
     uint32_t lastPostTick, Trace lastPostTrace)
   {
-    log_debug("\tlast_correlation_time:%u, last_pre_time:%u, last_post_time:%u", last_correlation_time, last_pre_time, last_post_time);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\tLast update tick:%u, last pre tick:%u, last post tick:%u",
+              lastUpdateTick, lastPreTick, lastPostTick);
 
     // Last correlation will have occured at last pre time so decay last post trace to this time
-    correlation_trace_t finalPostTrace = bcpnn_update_trace(last_correlation_time,
-      last_post_time, last_post_trace,
-      ZJ_LUT_INPUT_SHIFT, ZJ_LUT_SIZE, bcpnn_zj_lut);
+    Trace finalPostTrace = UpdateTrace(lastUpdateTick, false,
+                                       lastPostTrace, lastPostTick,
+                                       m_TauZjLUT);
 
-    // Convert final ei*, ej* and eij* traces into final ei, ej and eij values
-    int32_t finalPi = GetP(lastPreTrace, m_Ai);
-    int32_t finalPj = GetP(lastPostTrace, m_Aj);
-    int32_t finalPij = GetPij(lastPreTrace, finalPostTrace, pIJStar);
+    // Convert final Pi*, Pj* and Pij* traces into final Pi, Pj and Pij values
+    const int32_t finalPi = GetP(lastPreTrace, m_Ai);
+    const int32_t finalPj = GetP(lastPostTrace, m_Aj);
+    const int32_t finalPij = GetPij(lastPreTrace, finalPostTrace, pIJStar);
 
     // Take logs of the correlation trace and the product of the other traces
-    int32_t logPij = m_LnLUT.Get(finalPij + m_EpsilonSquared);
-    int32_t logPiPj = bcpnn_ln(Mul16<13>(finalPi + m_Epsilon,
-                                       finalPj + m_Epsilon));
+    const int32_t logPij = m_LnLUT.Get(finalPij + m_EpsilonSquared);
+    const int32_t logPiPj = m_LnLUT.Get(TraceMul16(finalPi + m_Epsilon,
+                                                   finalPj + m_Epsilon));
 
     // Calculate bayesian weight (using log identities to remove divide)
-    int32_t weight = logPij - logPiPj;
+    const int32_t weight = logPij - logPiPj;
 
     // Scale weight into ring-buffer format
-    int32_t weightScaled = Mul16<13>(weight, m_MaxWeight);
+    const int32_t weightScaled = TraceMul16(weight, m_MaxWeight);
 
-    log_debug("\t\tzi_star:%d, zj_star:%d, ei_star:%d, ej_star:%d, eij_star:%d, ei:%d, ej:%d, eij:%d, log(ei * ej):%d, log(eij):%d, weight:%d, weight_scaled:%d",
-      bcpnn_trace_get_z_star(last_pre_trace), bcpnn_trace_get_z_star(final_post_trace), bcpnn_trace_get_z_star(last_pre_trace), bcpnn_trace_get_z_star(final_post_trace), new_state.eij_star,
-      final_ei, final_ej, final_eij, log_ei_ej, log_eij, weight, weight_scaled);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tZi*:%d, Zj*:%d, Pi*:%d, Pj*:%d, Pij*:%d, Pi:%d, Pj:%d, Pij:%d, log(Pi * Pj):%d, log(Pij):%d, weight:%d, weight scaled:%d",
+      lastPreTrace.m_HalfWords[0], finalPostTrace.m_HalfWords[0], lastPreTrace.m_HalfWords[1], finalPostTrace.m_HalfWords[1], pIJStar,
+      finalPi, finalPj, finalPij, logPiPj, logPij, weight, weightScaled);
 
   #ifdef GENERATE_CSV
     io_printf(IO_BUF, "%u,,,,,,%d,%d,%d,%d,%d,,\n", last_correlation_time, new_state.eij_star, final_ei, final_ej, final_eij, weight);
@@ -350,9 +373,25 @@ private:
     // Return final state containing new eligibility value and weight
     return Pair(weightScaled, pIJStar);
   }
+
   //-----------------------------------------------------------------------------
   // Private static methods
   //-----------------------------------------------------------------------------
+  static int32_t StarMul16(int32_t a, int32_t b)
+  {
+    return Mul16<StarFixedPoint>(a, b);
+  }
+
+  static int32_t StarMul32(int32_t a, int32_t b)
+  {
+    return Mul<int32_t, int32_t, StarFixedPoint>(a, b);
+  }
+
+  static int32_t TraceMul16(int32_t a, int32_t b)
+  {
+    return Mul16<TraceFixedPoint>(a, b);
+  }
+
   static uint32_t GetIndex(uint32_t word)
   {
     return (word & IndexMask);
@@ -408,22 +447,28 @@ private:
   int32_t m_Aj;
   int32_t m_Aij;
 
+  // Epsilon values for eliminating ln(0)
   int32_t m_Epsilon;
   int32_t m_EpsilonSquared;
 
+  // Intrinsic bias multiplier
   int32_t m_PHI;
 
-  uint32_t m_Mode;
-
+  // Weight multiplier
   int32_t m_MaxWeight;
 
-  PostEventHistory m_PostEventHistory[512];
+  // Operating modes for toggling training etc
+  uint32_t m_Mode;
 
-  Common::ExpDecayLUT<TauPlusLUTNumEntries, TauPlusLUTShift> m_TauZiLUT;
-  Common::ExpDecayLUT<TauPlusLUTNumEntries, TauPlusLUTShift> m_TauZjLUT;
-  Common::ExpDecayLUT<TauPlusLUTNumEntries, TauPlusLUTShift> m_TauPLUT;
+  // Event history
+  PostEventHistory m_PostEventHistory[256];
 
-  LnLUT<TauPlusLUTNumEntries, TauPlusLUTShift, 13> m_LnLUT;
+  // Exponential lookup tables
+  Common::ExpDecayLUT<TauZiLUTNumEntries, TauZiLUTShift> m_TauZiLUT;
+  Common::ExpDecayLUT<TauZjLUTNumEntries, TauZjLUTShift> m_TauZjLUT;
+  Common::ExpDecayLUT<TauPLUTNumEntries, TauPLUTShift> m_TauPLUT;
+
+  // Natural log lookup table
+  LnLUT<LnLUTShift, TraceFixedPoint> m_LnLUT;
 };
-} // SynapseTypes
-} // SynapseProcessor
+} // BCPNN

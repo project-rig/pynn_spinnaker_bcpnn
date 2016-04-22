@@ -12,8 +12,8 @@
 //-----------------------------------------------------------------------------
 namespace BCPNN
 {
-template<unsigned int NumEntries, unsigned int Shift, unsigned int FixedPoint>
-class ExpDecayLUT
+template<unsigned int Shift, unsigned int FixedPoint>
+class LnLUT
 {
 public:
   //-----------------------------------------------------------------------------
@@ -54,7 +54,11 @@ private:
   //-----------------------------------------------------------------------------
   // Constants
   //-----------------------------------------------------------------------------
+  // What is 1.0 in desired fixed point format
   static const int FixedPointOne = (1 << FixedPoint);
+
+  // LUT always represents 1.0 - 2.0 so this is reflected in number of entries
+  static const unsigned int NumEntries = FixedPointOne >> Shift;
 
   // **NOTE** could micro-optimise and use a number that can be represented as an ARM literal
   static const int Log2ToNaturalLogConvert = 5678;// (int)roundf((float)TRACE_FIXED_POINT_ONE / log2f(expf(1.0f)));
