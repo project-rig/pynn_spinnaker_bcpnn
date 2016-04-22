@@ -17,8 +17,7 @@ float_to_s69_no_copy = LazyArrayFloatToFixConverter(True, 16, 9, False)
 def s1813(values, **kwargs):
     return float_to_s1813_no_copy(deepcopy(values))
 
-s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut, float_to_fixed=float_to_s69_no_copy)
-
+# Generate a LUT of ln(x) for x in (1.0, 2.0]
 def s1813_ln_lut(input_shift):
     # Calculate the size of the LUT
     size = (1 << 13) >> input_shift
@@ -28,6 +27,10 @@ def s1813_ln_lut(input_shift):
 
     # Take log and convert to fixed point
     return float_to_s1813_no_copy(la.log(x))
+
+# Partially bound exponent decay LUT generator for S6.9 fixed-point
+s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
+                            float_to_fixed=float_to_s69_no_copy)
 
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
