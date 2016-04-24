@@ -9,8 +9,12 @@ from pyNN.standardmodels.synapses import StandardSynapseType
 from pynn_spinnaker.spinnaker.utils import LazyArrayFloatToFixConverter
 
 # Import functions
+from copy import deepcopy
 from functools import partial
 from pyNN.standardmodels import build_translations
+
+# Import globals
+from pynn_spinnaker.simulator import state
 
 # Create a converter functions to convert from float
 # to various fixed-point formats used by BCPNN
@@ -77,28 +81,33 @@ class BCPNNSynapse(StandardSynapseType):
         "weights_enabled": True,      # Are the learnt or pre-loaded weights passed to the ring-buffer
         "plasticity_enabled": True,   # Is plasticity enabled
         "bias_enabled": True,         # Are the learnt biases passed to the neuron
+
+        # **YUCK** translation requires the same number of PyNN parameters
+        # as native parameters so these make up the numbers
+        "_placeholder1": None,
+        "_placeholder2": None,
     }
 
 
     translations = build_translations(
-        ("weight", "weight"),
-        ("delay",  "delay"),
+        ("weight",                "weight"),
+        ("delay",                 "delay"),
 
-        ("tau_zi", "tau_zi"),
-        ("tau_zj", "tau_zj"),
-        ("tau_p",  "tau_p"),
+        ("tau_zi",                "tau_zi"),
+        ("tau_zj",                "tau_zj"),
+        ("tau_p",                 "tau_p"),
 
-        ("",       "a_i",             "1000.0 / (max_firing_frequency * (tau_zi - tau_p))", ""),
-        ("",       "a_j",             "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""),
-        ("",       "a_ij",            "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""), #**FIXME**
+        ("max_firing_frequency",  "a_i",              "1000.0 / (max_firing_frequency * (tau_zi - tau_p))", ""),
+        ("weights_enabled",       "a_j",              "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""),
+        ("plasticity_enabled",    "a_ij",             "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""), #**FIXME**
 
-        ("",       "epsilon",         "1000.0 / (max_firing_frequency * tau_p)", ""),
-        ("",       "epsilon_squared", "(1000.0 / (max_firing_frequency * tau_p)) ** 2", ""),
+        ("bias_enabled",          "epsilon",          "1000.0 / (max_firing_frequency * tau_p)", ""),
+        ("_placeholder1",         "epsilon_squared",  "(1000.0 / (max_firing_frequency * tau_p)) ** 2", ""),
 
-        ("phi",    "phi"),
-        ("w_max",  "w_max"),
+        ("phi",                   "phi"),
+        ("w_max",                 "w_max"),
 
-        ("",       "mode",            "(1 << 0) if weights_enabled else 0) | ((1 << 1) if plasticity_enabled else 0) | ((1 << 2) if bias_enabled else 0", ""),
+        ("_placeholder2",         "mode",             "weights_enabled + (plasticity_enabled * 2) + (bias_enabled * 4)", ""),
     )
 
     plasticity_param_map = [
