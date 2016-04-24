@@ -1,5 +1,8 @@
 # Import modules
+import lazyarray as la
+import numpy as np
 from pynn_spinnaker.spinnaker import lazy_param_map
+from pynn_spinnaker.spinnaker import regions
 
 # Import classes
 from pyNN.standardmodels.synapses import StandardSynapseType
@@ -7,6 +10,7 @@ from pynn_spinnaker.spinnaker.utils import LazyArrayFloatToFixConverter
 
 # Import functions
 from functools import partial
+from pyNN.standardmodels import build_translations
 
 # Create a converter functions to convert from float
 # to various fixed-point formats used by BCPNN
@@ -36,7 +40,7 @@ s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
 # BCPNNSynapse
 # ------------------------------------------------------------------------------
 class BCPNNSynapse(StandardSynapseType):
-     """
+    """
     BCPNN synapse
 
     Arguments:
@@ -94,7 +98,7 @@ class BCPNNSynapse(StandardSynapseType):
         ("phi",    "phi"),
         ("w_max",  "w_max"),
 
-        ("",       "mode",            "(1 << 0) if weights_enabled else 0) | ((1 << 1) if plasticity_enabled else 0) | ((1 << 2) if bias_enabled else 0"),
+        ("",       "mode",            "(1 << 0) if weights_enabled else 0) | ((1 << 1) if plasticity_enabled else 0) | ((1 << 2) if bias_enabled else 0", ""),
     )
 
     plasticity_param_map = [
