@@ -5,6 +5,7 @@
 #include <cstring>
 
 // Common includes
+#include "common/disable_interrupts.h"
 #include "common/exp_decay_lut.h"
 #include "common/log.h"
 
@@ -15,6 +16,7 @@
 #include "ln_lut.h"
 
 // Namespaces
+using namespace Common;
 using namespace Common::FixedPointNumber;
 
 //-----------------------------------------------------------------------------
@@ -102,7 +104,9 @@ public:
                 tick);
       // Calculate new pre-trace
       newPreTrace = UpdateTrace(tick, true, lastPreTrace, lastPreTick, m_TauZiLUT);
-      
+      CSVPrint("%u,%u,%d,%d,,,,,,,,,\n",
+               tick, flush, newPreTrace.m_HalfWords[0], newPreTrace.m_HalfWords[1]);
+
       // Write back updated last presynaptic spike time and trace to row
       dmaBuffer[4] = tick;
       SetPreTrace(dmaBuffer, newPreTrace);
@@ -213,6 +217,8 @@ public:
       // and add new trace and time to post history
       PostTrace trace = UpdateTrace(tick, true, postHistory.GetLastTrace(),
                                     postHistory.GetLastTime(), m_TauZjLUT);
+      CSVPrintDisableIRQ("%u,,,,%d,%d,,,,,,,,\n",
+                         tick, trace.m_HalfWords[0], trace.m_HalfWords[1]);
       postHistory.Add(tick, trace);
     }
   }
@@ -366,9 +372,8 @@ private:
       lastPreTrace.m_HalfWords[0], finalPostTrace.m_HalfWords[0], lastPreTrace.m_HalfWords[1], finalPostTrace.m_HalfWords[1], pIJStar,
       finalPi, finalPj, finalPij, logPiPj, logPij, weight, weightScaled);
 
-  #ifdef GENERATE_CSV
-    io_printf(IO_BUF, "%u,,,,,,%d,%d,%d,%d,%d,,\n", last_correlation_time, new_state.eij_star, final_ei, final_ej, final_eij, weight);
-  #endif  // GENERATE_CSV
+    CSVPrint("%u,,,,,,%d,%d,%d,%d,%d,,\n",
+              lastUpdateTick, pIJStar, finalPi, finalPj, finalPij, weight);
 
     // Return final state containing new eligibility value and weight
     return Pair(weightScaled, pIJStar);
@@ -377,6 +382,23 @@ private:
   //-----------------------------------------------------------------------------
   // Private static methods
   //-----------------------------------------------------------------------------
+  template<typename... Args>
+  static void CSVPrint(char *fmt, Args... args )
+  {
+#ifdef GENERATE_CSV
+    io_printf(IO_BUF, fmt, args...);
+#endif  // GENERATE_CSV
+  }
+
+  template<typename... Args>
+  static void CSVPrintDisableIRQ(char *fmt, Args... args )
+  {
+#ifdef GENERATE_CSV
+    DisableIRQ d;
+    io_printf(IO_BUF, fmt, args...);
+#endif  // GENERATE_CSV
+  }
+
   static int32_t StarMul16(int32_t a, int32_t b)
   {
     return Mul16<StarFixedPoint>(a, b);

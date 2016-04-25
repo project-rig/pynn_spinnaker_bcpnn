@@ -13,6 +13,10 @@ SOURCES = $(PYNN_SPINNAKER_RUNTIME_DIR)/common/config.cpp \
 # runtime directory (for standard PyNN SpiNNaker includes)
 CFLAGS += -I $(CURDIR) -I $(PYNN_SPINNAKER_RUNTIME_DIR)
 
+ifdef GENERATE_CSV
+	CFLAGS += -DGENERATE_CSV
+endif
+
 # Override directory APLX gets loaded into so it's within module
 APP_DIR = ../../../binaries
 
