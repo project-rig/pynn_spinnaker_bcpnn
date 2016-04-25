@@ -54,7 +54,7 @@ class BCPNNSynapse(StandardSynapseType):
             Time constant of postsynaptic primary trace (ms).
         `tau_p`:
             Time constant of probability trace (ms).
-        `max_firing_frequency`:
+        `f_max`:
             Firing frequency representing certainty (Hz).
         `phi`:
             Scaling of intrinsic bias current from probability to current domain (nA).
@@ -72,15 +72,15 @@ class BCPNNSynapse(StandardSynapseType):
     default_parameters = {
         "weight": 0.0,
         "delay": None,
-        "tau_zi": 5.0,                # Time constant of presynaptic primary trace (ms)
-        "tau_zj": 5.0,                # Time constant of postsynaptic primary trace (ms)
-        "tau_p": 1000.0,              # Time constant of probability trace (ms)
-        "max_firing_frequency": 20.0, # Firing frequency representing certainty (Hz)
-        "phi": 0.05,                  # Scaling of intrinsic bias current from probability to current domain (nA)
-        "w_max": 2.0,                 # Scaling of weights from probability to current domain (nA/uS)
-        "weights_enabled": True,      # Are the learnt or pre-loaded weights passed to the ring-buffer
-        "plasticity_enabled": True,   # Is plasticity enabled
-        "bias_enabled": True,         # Are the learnt biases passed to the neuron
+        "tau_zi": 5.0,              # Time constant of presynaptic primary trace (ms)
+        "tau_zj": 5.0,              # Time constant of postsynaptic primary trace (ms)
+        "tau_p": 1000.0,            # Time constant of probability trace (ms)
+        "f_max": 20.0,              # Firing frequency representing certainty (Hz)
+        "phi": 0.05,                # Scaling of intrinsic bias current from probability to current domain (nA)
+        "w_max": 2.0,               # Scaling of weights from probability to current domain (nA/uS)
+        "weights_enabled": True,    # Are the learnt or pre-loaded weights passed to the ring-buffer
+        "plasticity_enabled": True, # Is plasticity enabled
+        "bias_enabled": True,       # Are the learnt biases passed to the neuron
 
         # **YUCK** translation requires the same number of PyNN parameters
         # as native parameters so these make up the numbers
@@ -90,24 +90,24 @@ class BCPNNSynapse(StandardSynapseType):
 
 
     translations = build_translations(
-        ("weight",                "weight"),
-        ("delay",                 "delay"),
+        ("weight",              "weight"),
+        ("delay",               "delay"),
 
-        ("tau_zi",                "tau_zi"),
-        ("tau_zj",                "tau_zj"),
-        ("tau_p",                 "tau_p"),
+        ("tau_zi",              "tau_zi"),
+        ("tau_zj",              "tau_zj"),
+        ("tau_p",               "tau_p"),
 
-        ("max_firing_frequency",  "a_i",              "1000.0 / (max_firing_frequency * (tau_zi - tau_p))", ""),
-        ("weights_enabled",       "a_j",              "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""),
-        ("plasticity_enabled",    "a_ij",             "1000.0 / (max_firing_frequency * (tau_zj - tau_p))", ""), #**FIXME**
+        ("f_max",               "a_i",              "1000.0 / (f_max * (tau_zi - tau_p))", ""),
+        ("weights_enabled",     "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
+        ("plasticity_enabled",  "a_ij",             "1000.0 / (f_max * (tau_zj - tau_p))", ""), #**FIXME**
 
-        ("bias_enabled",          "epsilon",          "1000.0 / (max_firing_frequency * tau_p)", ""),
-        ("_placeholder1",         "epsilon_squared",  "(1000.0 / (max_firing_frequency * tau_p)) ** 2", ""),
+        ("bias_enabled",        "epsilon",          "1000.0 / (f_max * tau_p)", ""),
+        ("_placeholder1",       "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
 
-        ("phi",                   "phi"),
-        ("w_max",                 "w_max"),
+        ("phi",                 "phi"),
+        ("w_max",               "w_max"),
 
-        ("_placeholder2",         "mode",             "weights_enabled + (plasticity_enabled * 2) + (bias_enabled * 4)", ""),
+        ("_placeholder2",       "mode",             "weights_enabled + (plasticity_enabled * 2) + (bias_enabled * 4)", ""),
     )
 
     plasticity_param_map = [
@@ -132,8 +132,8 @@ class BCPNNSynapse(StandardSynapseType):
         (s1813_ln_lut(6), "128i2"),
     ]
 
-    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "max_firing_frequency",
-                              "phi", "w_max", "weights_enabled", "plasticity_enabled", "bias_enabled")
+    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "phi", "w_max", 
+                              "weights_enabled", "plasticity_enabled", "bias_enabled")
 
     # How many post-synaptic neurons per core can a
     # SpiNNaker synapse_processor of this type handle
