@@ -1,4 +1,4 @@
-PYNN_APP = synapse_bcpnn
+PYNN_APP = synapse_bcpnnsynapse
 
 # Find PyNN SpiNNaker directory
 PYNN_SPINNAKER_DIR := $(shell pynn_spinnaker_path)
