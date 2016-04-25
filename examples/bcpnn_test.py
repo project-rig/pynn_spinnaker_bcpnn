@@ -1,16 +1,21 @@
-import numpy, pylab, random, sys
+import logging, numpy, pylab, random, sys
 
-import spynnaker.pyNN as sim
-import bcpnn
+import pynn_spinnaker as sim
+import pynn_spinnaker_bcpnn as bcpnn
+
+logger = logging.getLogger("pynn_spinnaker")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
 
 # SpiNNaker setup
-sim.setup(timestep=1.0, min_delay=1.0, max_delay=10.0)
+sim.setup(timestep=1.0, max_delay=8.0,
+          spinnaker_hostname="192.168.1.1",
+          stop_on_spinnaker=False)
 
 #-------------------------------------------------------------------
 # General Parameters
 #-------------------------------------------------------------------
 # Population parameters
-model = sim.IF_curr_exp
 cell_params = {
     'cm' : 0.25, # nF
     'i_offset'  : 0.0,
@@ -28,11 +33,11 @@ cell_params = {
 # Creation of neuron populations
 #-------------------------------------------------------------------
 def spike_vector_to_times(vector, timestep, delay):
-    return list(numpy.multiply(numpy.where(vector != 0)[0], timestep) + delay)
+    return numpy.multiply(numpy.where(vector != 0)[0], timestep) + delay
         
 # Neuron populations
-pre_pop = sim.Population(1, model(**cell_params))
-post_pop = sim.Population(1, model(**cell_params))
+pre_pop = sim.Population(1, sim.IF_curr_exp(**cell_params))
+post_pop = sim.Population(1, sim.IF_curr_exp(**cell_params))
 
 # Load reference spike trains
 pre_spike_vector = numpy.load("pre_spikes_1.npy")
@@ -53,52 +58,26 @@ post_stim = sim.Population(1, sim.SpikeSourceArray(spike_times=post_spike_times)
 # Creation of connections
 #-------------------------------------------------------------------
 # Connection type between noise poisson generator and excitatory populations
-ee_connector = sim.OneToOneConnector(weights=2, delays=1)
-
-sim.Projection(pre_stim, pre_pop, ee_connector, target='excitatory')
-sim.Projection(post_stim, post_pop, ee_connector, target='excitatory')
+sim.Projection(pre_stim, pre_pop, sim.OneToOneConnector(),
+               sim.StaticSynapse(weight=2.0),
+               receptor_type="excitatory")
+sim.Projection(post_stim, post_pop, sim.OneToOneConnector(),
+               sim.StaticSynapse(weight=2.0),
+               receptor_type="excitatory")
 
 # Plastic Connections between pre_pop and post_pop
-bcpnn_model = bcpnn.BCPNNMechanism(
-    tau_zi=10.0,                  # ms
-    tau_zj=10.0,                  # ms
-    tau_eligibility=1000.0,       # ms
-    max_firing_frequency=50.0,    # Hz
-    phi=0.05,                     # nA
-    w_max=1.0)                    # nA / uS for conductance
+bcpnn_synapse = bcpnn.BCPNNSynapse(
+    tau_zi=10.0,   # ms
+    tau_zj=10.0,   # ms
+    tau_p=1000.0,  # ms
+    f_max=50.0,    # Hz
+    phi=0.05,      # nA
+    w_max=1.0)     # nA / uS for conductance
 
-sim.Projection(pre_pop, post_pop, sim.OneToOneConnector(), 
-    synapse_dynamics = sim.SynapseDynamics(slow=bcpnn_model)
-)
-
-# Record spikes
-pre_pop.record()
-post_pop.record()
+sim.Projection(pre_pop, post_pop, sim.OneToOneConnector(), bcpnn_synapse)
 
 # Run simulation
 sim.run(sim_time)
 
-def plot_spikes(spikes, axis, title):
-  if spikes != None:
-      axis.set_xlim([0, sim_time])
-      axis.plot([i[1] for i in spikes], [i[0] for i in spikes], ".") 
-      axis.set_xlabel('Time/ms')
-      axis.set_ylabel('spikes')
-      axis.set_title(title)
-     
-  else:
-      print "No spikes received"
-
-pre_spikes = pre_pop.getSpikes(compatible_output=True)
-post_spikes = post_pop.getSpikes(compatible_output=True)
-
-figure, axisArray = pylab.subplots(2)
-
-plot_spikes(pre_spikes, axisArray[0], "Pre-synaptic neurons")
-plot_spikes(post_spikes, axisArray[1], "Post-synaptic neurons")
-
-pylab.show()
-
-
-# End simulation on SpiNNaker
-sim.end(stop_on_board=False)
+# End simulation
+sim.end()
