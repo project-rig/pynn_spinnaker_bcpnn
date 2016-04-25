@@ -5,7 +5,8 @@ PYNN_SPINNAKER_DIR := $(shell pynn_spinnaker_path)
 PYNN_SPINNAKER_RUNTIME_DIR = $(PYNN_SPINNAKER_DIR)/spinnaker/runtime
 
 # Build object list
-SOURCES = $(PYNN_SPINNAKER_RUNTIME_DIR)/common/config.cpp \
+SOURCES = $(PYNN_SPINNAKER_RUNTIME_DIR)/common/bit_field.cpp \
+	$(PYNN_SPINNAKER_RUNTIME_DIR)/common/config.cpp \
 	$(PYNN_SPINNAKER_RUNTIME_DIR)/common/profiler.cpp \
 	$(PYNN_SPINNAKER_RUNTIME_DIR)/synapse_processor/synapse_processor.cpp
 
