@@ -12,6 +12,7 @@ from pynn_spinnaker.spinnaker.utils import LazyArrayFloatToFixConverter
 from copy import deepcopy
 from functools import partial
 from pyNN.standardmodels import build_translations
+from pynn_spinnaker.spinnaker.utils import get_homogeneous_param
 
 # Import globals
 from pynn_spinnaker.simulator import state
@@ -132,7 +133,7 @@ class BCPNNSynapse(StandardSynapseType):
         (s1813_ln_lut(6), "128i2"),
     ]
 
-    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "phi", "w_max", 
+    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "phi", "w_max",
                               "weights_enabled", "plasticity_enabled", "bias_enabled")
 
     # How many post-synaptic neurons per core can a
@@ -143,22 +144,45 @@ class BCPNNSynapse(StandardSynapseType):
     # synapse_processor of this type process synaptic events (hZ)
     max_synaptic_event_rate = 1E6
 
-    synaptic_matrix_region_class = regions.StaticSynapticMatrix
+    # BCPNN requires a synaptic matrix region
+    # with support for extra per-synapse data
+    synaptic_matrix_region_class = regions.ExtendedPlasticSynapticMatrix
+    plasticity_region_class = regions.Plasticity
 
     # How many timesteps of delay can DTCM ring-buffer handle
     # **NOTE** only 7 timesteps worth of delay can be handled by
     # 8 element delay buffer - The last element is purely for output
     max_dtcm_delay_slots = 7
 
-    # Static synapses don't require post-synaptic
+    # BCPNN synapses require post-synaptic
     # spikes back-propagated to them
     requires_back_propagation = True
 
     # Pre trace consists of two 16-bit traces: Zi and Pi
     pre_trace_bytes = 4
 
+    # Each synape has an additional 16-bit trace: Pij
+    synapse_trace_bytes = 2
+
     def _get_minimum_delay(self):
         d = state.min_delay
         if d == "auto":
             d = state.dt
         return d
+
+    def update_weight_range(self, weight_range):
+        pass
+        # get_homogeneous_param(self.parameter_space, "w_max")
+        # If plasticity is enabled, weight that goes into the ring-buffer is calculated with
+        #             Pij
+        # w_max * ln(-----)
+        #             PiPj
+        #
+        # Therefore, maximum value is:
+        #
+        #                 1.0
+        # w_max * ln(-------------)
+        #             Epsilon ^ 2
+        #if self.plasticity_enabled:
+        #    return self.w_max * math.log(1.0 / (self.epsilon ** 2))
+        #self.weight_dependence.update_weight_range(weight_range)
