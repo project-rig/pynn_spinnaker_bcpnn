@@ -41,15 +41,6 @@ def s1813_ln_lut(input_shift):
 s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
                             float_to_fixed=float_to_s69_no_copy)
 
-def spike_height(tau_z, f_max):
-    return 1000.0 / (tau_z * f_max)
-
-def tau_zij(tau_zi, tau_zj):
-    return 1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))
-
-def a(spike_height, tau_z, tau_p):
-    return (spike_height * tau_z) / (tau_z - tau_p)
-
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
 # ------------------------------------------------------------------------------
@@ -167,8 +158,9 @@ class BCPNNSynapse(StandardSynapseType):
     # spikes back-propagated to them
     requires_back_propagation = True
 
-    # Pre trace consists of two 16-bit traces: Zi and Pi
-    pre_trace_bytes = 4
+    # Presynaptic state consists of a uint32 containing
+    # time of last update and an int16 for Zi and Pi
+    pre_state_bytes = 8
 
     # Each synape has an additional 16-bit trace: Pij
     synapse_trace_bytes = 2

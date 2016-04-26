@@ -90,27 +90,19 @@ public:
 
     // Get time of last update from DMA buffer and write back updated time
     const uint32_t lastUpdateTick = dmaBuffer[3];
+    const PreTrace lastPreTrace = GetPreTrace(dmaBuffer);
     dmaBuffer[3] = tick;
 
-    // Get time of last presynaptic spike and associated trace entry from DMA buffer
-    const uint32_t lastPreTick = dmaBuffer[4];
-    const PreTrace lastPreTrace = GetPreTrace(dmaBuffer);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tUpdating pre-synaptic trace at tick:%u",
+              tick);
 
-    // If this is an actual spike (rather than a flush event)
-    PreTrace newPreTrace;
-    if(!flush)
-    {
-      LOG_PRINT(LOG_LEVEL_TRACE, "\t\tAdding pre-synaptic event to trace at tick:%u",
-                tick);
-      // Calculate new pre-trace
-      newPreTrace = UpdateTrace(tick, true, lastPreTrace, lastPreTick, m_TauZiLUT);
-      CSVPrint("%u,%u,%d,%d,,,,,,,,,\n",
-               tick, flush, newPreTrace.m_HalfWords[0], newPreTrace.m_HalfWords[1]);
+    // Calculate new pre-trace
+    PreTrace newPreTrace = UpdateTrace(tick, !flush, lastPreTrace, lastUpdateTick, m_TauZiLUT);
+    CSVPrint("%u,%u,%d,%d,,,,,,,,,\n",
+              tick, flush, newPreTrace.m_HalfWords[0], newPreTrace.m_HalfWords[1]);
 
-      // Write back updated last presynaptic spike time and trace to row
-      dmaBuffer[4] = tick;
-      SetPreTrace(dmaBuffer, newPreTrace);
-    }
+    // Write back updated presynaptic trace to row
+    SetPreTrace(dmaBuffer, newPreTrace);
 
     // Extract first plastic and control words; and loop through synapses
     uint32_t count = dmaBuffer[0];
@@ -131,8 +123,7 @@ public:
       int32_t pIJStar = plasticWords->m_HalfWords[1];
 
       // Apply axonal delay to last presynaptic spike and update tick
-      const uint32_t delayedLastPreTick = lastPreTick + delayAxonal;
-      uint32_t delayedLastUpdateTick = lastUpdateTick + delayAxonal;
+      const uint32_t delayedLastUpdateTick = lastUpdateTick + delayAxonal;
 
       // Get the post-synaptic window of events to be processed
       // **NOTE** this is the window since the last UPDATE rather than the last presynaptic spike
@@ -149,6 +140,7 @@ public:
           windowBeginTick, windowEndTick, postWindow.GetPrevTime(), postWindow.GetNumEvents());
 
       // Process events in post-synaptic window
+      uint32_t lastCorrelationTime = delayedLastUpdateTick;
       while (postWindow.GetNumEvents() > 0)
       {
         const uint32_t delayedPostTick = postWindow.GetNextTime() + delayDendritic;
@@ -158,12 +150,12 @@ public:
 
         // Update correlation based on post-spike
         pIJStar = UpdateCorrelation(delayedPostTick, true,
-                                    delayedLastUpdateTick, pIJStar,
-                                    delayedLastPreTick, lastPreTrace,
+                                    lastCorrelationTime, pIJStar,
+                                    delayedLastUpdateTick, lastPreTrace,
                                     m_TauZiLUT);
 
-        // Update
-        delayedLastUpdateTick = delayedPostTick;
+        // Update last correlation time
+        lastCorrelationTime = delayedPostTick;
 
         // Go onto next event
         postWindow.Next(delayedPostTick);
@@ -175,22 +167,21 @@ public:
 
       // Update correlation based on pre-spike/flush
       pIJStar = UpdateCorrelation(delayedPreTick, !flush,
-                                  delayedLastUpdateTick, pIJStar,
+                                  lastCorrelationTime, pIJStar,
                                   postWindow.GetPrevTime(), postWindow.GetPrevTrace(),
                                   m_TauZjLUT);
 
-      // **TODO** seperate cases 1) Flush - update last pre to time of last post spike and u
       // Calculate final state after all updates
-      PlasticSynapse finalState = CalculateFinalState(pIJStar, delayedPreTick,
-                                                      lastPreTick, lastPreTrace,
+      PlasticSynapse finalState = CalculateFinalState(pIJStar,
+                                                      delayedPreTick, newPreTrace,
                                                       postWindow.GetPrevTime(), postWindow.GetPrevTrace());
 
       // If this isn't a flush, add weight to ring-buffer
-      if(!flush)
+      /*if(!flush)
       {
         applyInputFunction(delayDendritic + delayAxonal + tick,
           postIndex, finalState.m_HalfWords[0]);
-      }
+      }*/
 
       // Write back updated synaptic word to plastic region
       *plasticWords++ = finalState.m_Word;
@@ -198,7 +189,7 @@ public:
 
     // Write back row and all plastic data to SDRAM
     writeBackRowFunction(&sdramRowAddress[3], &dmaBuffer[3],
-      2 + PreTraceWords + GetNumPlasticWords(dmaBuffer[0]));
+      1 + PreTraceWords + GetNumPlasticWords(dmaBuffer[0]));
     return true;
   }
 
@@ -207,7 +198,7 @@ public:
     // If neuron ID is valid
     if(neuronID < 256)
     {
-      LOG_PRINT(LOG_LEVEL_TRACE, "Adding post-synaptic event to trace at tick:%u",
+      LOG_PRINT(LOG_LEVEL_TRACE, "Updating postsynaptic trace at tick:%u",
                 tick);
 
       // Get neuron's post history
@@ -225,8 +216,8 @@ public:
 
   unsigned int GetRowWords(unsigned int rowSynapses) const
   {
-    // Three header word and a synapse
-    return 5 + PreTraceWords + GetNumPlasticWords(rowSynapses) + GetNumControlWords(rowSynapses);
+    // Four header word and a synapse
+    return 4 + PreTraceWords + GetNumPlasticWords(rowSynapses) + GetNumControlWords(rowSynapses);
   }
 
   bool ReadSDRAMData(uint32_t *region, uint32_t)
@@ -303,7 +294,7 @@ private:
       newPStar += StarFixedPointOne;
     }
 
-    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tElapsed ticks:%u, Z*:%d, P*:%d, Z* decay:%d, P* decay:%d, New Z*:%d, New P*:%d\n",
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tElapsed ticks:%u, Z*:%d, P*:%d, Z* decay:%d, P* decay:%d, New Z*:%d, New P*:%d\n",
       elapsedTicks, lastTrace.m_HalfWords[0], lastTrace.m_HalfWords[1],
       zStarDecay, pStarDecay, newZStar, newPStar);
 
@@ -329,32 +320,35 @@ private:
       uint32_t otherTraceElapsedTicks = tick - lastOtherTick;
       int32_t otherTraceZStarDecay = otherTauZLut.Get(otherTraceElapsedTicks);
 
+      LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\t\tOther trace elapsed ticks:%u, other trace Z* decay::%d",
+              otherTraceElapsedTicks, otherTraceZStarDecay);
+
       newPIJStar = __smlabb(lastOtherTrace.m_Word, otherTraceZStarDecay, newPIJStar);
     }
     newPIJStar >>= StarFixedPoint;
 
-    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying deferred spike - New Pij*:%d",
-              newPIJStar);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\t\tElapsed ticks:%u, Pij*:%d, Pij* decay:%d, New Pij*:%d",
+              elapsedTicks, lastPIJStar, pStarDecay, newPIJStar);
 
     // Build new trace structure and return
     return newPIJStar;
   }
 
-  PlasticSynapse CalculateFinalState(int32_t pIJStar, uint32_t lastUpdateTick,
+  PlasticSynapse CalculateFinalState(int32_t pIJStar,
     uint32_t lastPreTick, Trace lastPreTrace,
     uint32_t lastPostTick, Trace lastPostTrace)
   {
-    LOG_PRINT(LOG_LEVEL_TRACE, "\tLast update tick:%u, last pre tick:%u, last post tick:%u",
-              lastUpdateTick, lastPreTick, lastPostTick);
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tLast pre tick:%u, last post tick:%u",
+              lastPreTick, lastPostTick);
 
     // Last correlation will have occured at last pre time so decay last post trace to this time
-    Trace finalPostTrace = UpdateTrace(lastUpdateTick, false,
+    Trace finalPostTrace = UpdateTrace(lastPreTick, false,
                                        lastPostTrace, lastPostTick,
                                        m_TauZjLUT);
 
     // Convert final Pi*, Pj* and Pij* traces into final Pi, Pj and Pij values
     const int32_t finalPi = GetP(lastPreTrace, m_Ai);
-    const int32_t finalPj = GetP(lastPostTrace, m_Aj);
+    const int32_t finalPj = GetP(finalPostTrace, m_Aj);
     const int32_t finalPij = GetPij(lastPreTrace, finalPostTrace, pIJStar);
 
     // Take logs of the correlation trace and the product of the other traces
@@ -368,12 +362,12 @@ private:
     // Scale weight into ring-buffer format
     const int32_t weightScaled = TraceMul16(weight, m_MaxWeight);
 
-    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tZi*:%d, Zj*:%d, Pi*:%d, Pj*:%d, Pij*:%d, Pi:%d, Pj:%d, Pij:%d, log(Pi * Pj):%d, log(Pij):%d, weight:%d, weight scaled:%d",
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\t\tZi*:%d, Zj*:%d, Pi*:%d, Pj*:%d, Pij*:%d, Pi:%d, Pj:%d, Pij:%d, log(Pi * Pj):%d, log(Pij):%d, weight:%d, weight scaled:%d",
       lastPreTrace.m_HalfWords[0], finalPostTrace.m_HalfWords[0], lastPreTrace.m_HalfWords[1], finalPostTrace.m_HalfWords[1], pIJStar,
       finalPi, finalPj, finalPij, logPiPj, logPij, weight, weightScaled);
 
     CSVPrint("%u,,,,,,%d,%d,%d,%d,%d,,\n",
-              lastUpdateTick, pIJStar, finalPi, finalPj, finalPij, weight);
+              lastPreTick, pIJStar, finalPi, finalPj, finalPij, weight);
 
     // Return final state containing new eligibility value and weight
     return Pair(weightScaled, pIJStar);
@@ -441,7 +435,7 @@ private:
     // **NOTE** GCC will optimise this memcpy out it
     // is simply strict-aliasing-safe solution
     PreTrace preTrace;
-    memcpy(&preTrace, &dmaBuffer[5], sizeof(PreTrace));
+    memcpy(&preTrace, &dmaBuffer[4], sizeof(PreTrace));
     return preTrace;
   }
 
@@ -449,17 +443,17 @@ private:
   {
     // **NOTE** GCC will optimise this memcpy out it
     // is simply strict-aliasing-safe solution
-    memcpy(&dmaBuffer[5], &preTrace, sizeof(PreTrace));
+    memcpy(&dmaBuffer[4], &preTrace, sizeof(PreTrace));
   }
 
   static PlasticSynapse *GetPlasticWords(uint32_t (&dmaBuffer)[MaxRowWords])
   {
-    return reinterpret_cast<PlasticSynapse*>(&dmaBuffer[5 + PreTraceWords]);
+    return reinterpret_cast<PlasticSynapse*>(&dmaBuffer[4 + PreTraceWords]);
   }
 
   static const C *GetControlWords(uint32_t (&dmaBuffer)[MaxRowWords], unsigned int numSynapses)
   {
-    return reinterpret_cast<C*>(&dmaBuffer[5 + PreTraceWords + GetNumPlasticWords(numSynapses)]);
+    return reinterpret_cast<C*>(&dmaBuffer[4 + PreTraceWords + GetNumPlasticWords(numSynapses)]);
   }
 
   //-----------------------------------------------------------------------------
