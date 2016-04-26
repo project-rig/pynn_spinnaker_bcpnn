@@ -41,6 +41,15 @@ def s1813_ln_lut(input_shift):
 s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
                             float_to_fixed=float_to_s69_no_copy)
 
+def spike_height(tau_z, f_max):
+    return 1000.0 / (tau_z * f_max)
+
+def tau_zij(tau_zi, tau_zj):
+    return 1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))
+
+def a(spike_height, tau_z, tau_p):
+    return (spike_height * tau_z) / (tau_z - tau_p)
+
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
 # ------------------------------------------------------------------------------
@@ -100,7 +109,7 @@ class BCPNNSynapse(StandardSynapseType):
 
         ("f_max",               "a_i",              "1000.0 / (f_max * (tau_zi - tau_p))", ""),
         ("weights_enabled",     "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
-        ("plasticity_enabled",  "a_ij",             "1000.0 / (f_max * (tau_zj - tau_p))", ""), #**FIXME**
+        ("plasticity_enabled",  "a_ij",             "(1000000.0 / (tau_zi + tau_zj)) / ((f_max ** 2) * ((1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))) - tau_p))", ""),
 
         ("bias_enabled",        "epsilon",          "1000.0 / (f_max * tau_p)", ""),
         ("_placeholder1",       "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
