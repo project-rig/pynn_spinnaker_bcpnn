@@ -23,9 +23,9 @@ namespace SynapseProcessor
   typedef BCPNN::BCPNN<int16_t, 3, 10,
                        9,        // Fixed point position for Z* and P*
                        13,       // Fixed point format for Z and P
-                       128, 0,   // Exponential decay LUT config for TauZi
-                       128, 0,   // Exponential decay LUT config for TauZj
-                       1136, 3,  // Exponential decay LUT config for TauP
+                       262, 2,   // Exponential decay LUT config for TauZi
+                       262, 2,   // Exponential decay LUT config for TauZj
+                       1136, 4,  // Exponential decay LUT config for TauP
                        6, 10> SynapseType;
 }
 

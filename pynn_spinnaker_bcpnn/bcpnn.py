@@ -1,5 +1,6 @@
 # Import modules
 import lazyarray as la
+import math
 import numpy as np
 from pynn_spinnaker.spinnaker import lazy_param_map
 from pynn_spinnaker.spinnaker import regions
@@ -124,12 +125,12 @@ class BCPNNSynapse(StandardSynapseType):
 
         ("mode", "u4", lazy_param_map.integer),
 
-        ("tau_zi", "128i2", partial(s69_exp_decay_lut,
-                                    num_entries=128, time_shift=0)),
-        ("tau_zj", "128i2", partial(s69_exp_decay_lut,
-                                    num_entries=128, time_shift=0)),
+        ("tau_zi", "262i2", partial(s69_exp_decay_lut,
+                                    num_entries=262, time_shift=2)),
+        ("tau_zj", "262i2", partial(s69_exp_decay_lut,
+                                    num_entries=262, time_shift=2)),
         ("tau_p", "1136i2", partial(s69_exp_decay_lut,
-                                    num_entries=1136, time_shift=3)),
+                                    num_entries=1136, time_shift=4)),
         (s1813_ln_lut(6), "128i2"),
     ]
 
@@ -172,9 +173,7 @@ class BCPNNSynapse(StandardSynapseType):
         return d
 
     def update_weight_range(self, weight_range):
-        pass
-        # get_homogeneous_param(self.parameter_space, "w_max")
-        # If plasticity is enabled, weight that goes into the ring-buffer is calculated with
+        # If plasticity is enabled, maximum weight can be calculated with
         #             Pij
         # w_max * ln(-----)
         #             PiPj
@@ -184,6 +183,12 @@ class BCPNNSynapse(StandardSynapseType):
         #                 1.0
         # w_max * ln(-------------)
         #             Epsilon ^ 2
-        #if self.plasticity_enabled:
-        #    return self.w_max * math.log(1.0 / (self.epsilon ** 2))
-        #self.weight_dependence.update_weight_range(weight_range)
+        if get_homogeneous_param(self.parameter_space, "plasticity_enabled"):
+            # Read parameters from parameter space
+            f_max = get_homogeneous_param(self.parameter_space, "f_max")
+            tau_p = get_homogeneous_param(self.parameter_space, "tau_p")
+            w_max = get_homogeneous_param(self.parameter_space, "w_max")
+
+            # Calculate epsilon and hence maximum weight
+            epsilon = 1000.0 / (f_max * tau_p)
+            weight_range.update(w_max * math.log(1.0 / (epsilon ** 2)))
