@@ -190,5 +190,6 @@ class BCPNNSynapse(StandardSynapseType):
             w_max = get_homogeneous_param(self.parameter_space, "w_max")
 
             # Calculate epsilon and hence maximum weight
+            # **HACK** double to take into account signedness of BCPNN weights
             epsilon = 1000.0 / (f_max * tau_p)
-            weight_range.update(w_max * math.log(1.0 / (epsilon ** 2)))
+            weight_range.update(2.0 * w_max * math.log(1.0 / (epsilon ** 2)))
