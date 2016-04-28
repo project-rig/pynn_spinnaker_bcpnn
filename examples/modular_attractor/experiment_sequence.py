@@ -51,18 +51,10 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
     # Repeat sequences of sequential minicolumn activation for each epoch
     minicolumn_indices = itertools.chain(*itertools.repeat(range(10), num_training_epochs))
 
-    '''
-    if mode == Mode.train_ampa:
-        hcu_results, connection_results, end_simulation = network.train_discrete(True, network.tau_syn_ampa_gaba, network.tau_syn_ampa_gaba, tau_p,
-                                                                                 minicolumn_indices, training_stim_time, training_interval_time,
-                                                                                 delay_model, num_hcu, num_mcu_neurons)
-
-        # Save weights for all AMPA connections
-        for i, (ampa_weight_writer) in enumerate(connection_results):
-            ampa_weight_writer[0]("%s/connection_%u_e_e_ampa.npy" % (folder, i))
-    else:
-    '''
+    # Determine tau_zj for NMDA synapses depending on mode
     nmda_tau_zj = network.tau_syn_ampa_gaba if mode == Mode.train_asymmetrical else network.tau_syn_nmda
+
+    # Simulate
     hcu_results, connection_results, end_simulation = network.train_discrete(network.tau_syn_ampa_gaba, network.tau_syn_ampa_gaba,
                                                                              network.tau_syn_nmda, nmda_tau_zj, tau_p,
                                                                              minicolumn_indices, training_stim_time, training_interval_time,
