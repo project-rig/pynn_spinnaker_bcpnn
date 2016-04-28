@@ -77,6 +77,7 @@ bcpnn_synapse = bcpnn.BCPNNSynapse(
 sim.Projection(pre_pop, post_pop, sim.OneToOneConnector(), bcpnn_synapse)
 
 # Run simulation
+# **TODO** run for 10ms, get weights, rinse and repeat
 sim.run(sim_time)
 
 # End simulation
