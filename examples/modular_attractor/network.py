@@ -88,6 +88,30 @@ cell_params = {"tau_m"      : tauMem,
 #-------------------------------------------------------------------
 # Functions
 #-------------------------------------------------------------------
+# Convert weights in format returned by getWeights into a connection list
+def convert_weights_to_list(filename, delay, weight_scale=1.0):
+    # Load dense matrix
+    matrix = numpy.load(filename)
+
+    def build_list(indices):
+        # Extract weights from matrix using indices
+        weights = matrix[indices]
+
+        # Scale weights
+        weights = numpy.multiply(weights, weight_scale)
+
+        # Build numpy array of delays
+        delays = numpy.repeat(delay, len(weights))
+
+        # Zip x-y coordinates of non-zero weights with weights and delays
+        return zip(indices[0], indices[1], weights, delays)
+
+    # Get indices of non-nan i.e. connected weights
+    connected_indices = numpy.where(~numpy.isnan(matrix))
+
+    # Return connection lists
+    return build_list(connected_indices)
+
 # Generate poisson noise of given rate between start and stop times
 def poisson_generator(rate, t_start, t_stop):
     n = (t_stop - t_start) / 1000.0 * rate
@@ -337,11 +361,13 @@ class HCUConnection(object):
         # Create connection
         self.ampa_connection = sim.Projection(pre_hcu.e_cells, post_hcu.e_cells,
                                               ampa_connector, ampa_synapse,
-                                              receptor_type="excitatory")
+                                              receptor_type="excitatory",
+                                              label="%s->%s (AMPA)" % (pre_hcu.e_cells.label, post_hcu.e_cells.label))
 
         self.nmda_connection = sim.Projection(pre_hcu.e_cells, post_hcu.e_cells,
                                               nmda_connector, nmda_synapse,
-                                              receptor_type="excitatory2")
+                                              receptor_type="excitatory2",
+                                              label="%s->%s (NMDA)" % (pre_hcu.e_cells.label, post_hcu.e_cells.label))
 
     #-------------------------------------------------------------------
     # Public methods
@@ -523,7 +549,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
 
         logger.info("Connecting HCU %u->%u with delay %ums" % (i_pre, i_post, hcu_delay))
         connections.append(HCUConnection.training(
-            sim, pre_hcu=hcu_pre, post_hcu=hcu_post,
+            sim=sim, pre_hcu=hcu_pre, post_hcu=hcu_post,
             ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse))
 
     # Run simulation
