@@ -9,6 +9,7 @@ from pynn_spinnaker.spinnaker import regions
 from pyNN.standardmodels.synapses import StandardSynapseType
 from pynn_spinnaker.spinnaker.utils import LazyArrayFloatToFixConverter
 from pynn_spinnaker.standardmodels.cells import IF_curr_exp
+from pynn_spinnaker_if_curr_dual_exp import IF_curr_dual_exp
 
 # Import functions
 from copy import deepcopy
@@ -50,7 +51,7 @@ s1813_ln_lut = partial(ln_lut, float_to_fixed=float_to_s1813_no_copy)
 # Intrinsic plasticity default parameters
 # ----------------------------------------------------------------------------
 intrinsic_plasticity_default_parameters = {
-    "tau_zj": 5.0,              # Time constant of postsynaptic primary trace (ms)
+    "tau_z": 5.0,               # Time constant of primary trace (ms)
     "tau_p": 1000.0,            # Time constant of probability trace (ms)
     "f_max": 20.0,              # Firing frequency representing certainty (Hz)
     "phi": 0.05,                # Scaling of intrinsic bias current from probability to current domain (nA)
@@ -65,10 +66,10 @@ intrinsic_plasticity_default_parameters = {
 # Intrinsic plasticity translations
 # ----------------------------------------------------------------------------
 intrinsic_plasticity_translations = build_translations(
-    ("tau_zj",              "tau_zj"),
+    ("tau_z",               "tau_z"),
     ("tau_p",               "tau_p"),
 
-    ("f_max",               "minus_a_j",        "1000.0 / (f_max * (tau_p - tau_zj))", ""),
+    ("f_max",               "minus_a",        "1000.0 / (f_max * (tau_p - tau_z))", ""),
     ("phi",                 "phi"),
     ("bias_enabled",        "bias_enabled"),
 
@@ -79,10 +80,10 @@ intrinsic_plasticity_translations = build_translations(
 # Intrinsic plasticity region map
 # ----------------------------------------------------------------------------
 intrinsic_plasticity_param_map = [
-    ("minus_a_j", "i4", s1813),
+    ("minus_a", "i4", s1813),
     ("phi", "i4", lazy_param_map.s1615),
     ("epsilon", "i4", s1813),
-    ("tau_zj", "i4", s1813_exp_decay),
+    ("tau_z", "i4", s1813_exp_decay),
     ("tau_p", "i4", s1813_exp_decay),
     ("bias_enabled", "u4", lazy_param_map.integer),
     (s1813_ln_lut(6), "128i2"),
@@ -108,6 +109,28 @@ class IF_curr_exp(IF_curr_exp):
 
     # Add units for bias
     units = deepcopy(IF_curr_exp.units)
+    units.update({"bias": "nA"})
+
+# ------------------------------------------------------------------------------
+# IF_curr_dual_exp
+# ------------------------------------------------------------------------------
+class IF_curr_dual_exp(IF_curr_dual_exp):
+    # Update translations to handle intrinsic plasticity parameters
+    translations = deepcopy(IF_curr_dual_exp.translations)
+    translations.update(intrinsic_plasticity_translations)
+
+    # Update default parameters to handle intrinsic plasticity parameters
+    default_parameters = deepcopy(IF_curr_dual_exp.default_parameters)
+    default_parameters.update(intrinsic_plasticity_default_parameters)
+
+    # Set intrinsic plasticity parameter map
+    intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
+
+    # Add bias to list of recordables
+    recordable = IF_curr_dual_exp.recordable + ["bias"]
+
+    # Add units for bias
+    units = deepcopy(IF_curr_dual_exp.units)
     units.update({"bias": "nA"})
 
 # ------------------------------------------------------------------------------
