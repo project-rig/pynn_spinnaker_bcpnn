@@ -9,7 +9,8 @@ SOURCES = $(PYNN_SPINNAKER_RUNTIME_DIR)/common/config.cpp \
 	$(PYNN_SPINNAKER_RUNTIME_DIR)/common/bit_field.cpp \
 	$(PYNN_SPINNAKER_RUNTIME_DIR)/common/profiler.cpp \
 	$(PYNN_SPINNAKER_RUNTIME_DIR)/neuron_processor/neuron_processor.cpp \
-	$(PYNN_SPINNAKER_RUNTIME_DIR)/neuron_processor/neuron_models/if_curr.cpp
+	$(PYNN_SPINNAKER_RUNTIME_DIR)/neuron_processor/neuron_models/if_curr.cpp \
+	$(PYNN_SPINNAKER_RUNTIME_DIR)/neuron_processor/synapse_models/exp.cpp
 
 # Add both current  directory (for config.h) and
 # runtime directories (for standard PyNN SpiNNaker includes)
