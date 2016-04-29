@@ -186,7 +186,7 @@ class HCU(object):
                  record_bias, record_spikes, record_membrane):
 
         # Cache recording flags
-        self.record_bias = False#record_bias
+        self.record_bias = record_bias
         self.record_spikes = record_spikes
         self.record_membrane = record_membrane
         self.wta = wta
@@ -206,15 +206,16 @@ class HCU(object):
         # **HACK** issue #28 means plastic version needs clustering hack
         self.e_cells.spinnaker_config.max_neurons_per_core = 256
 
+        # **YUCK** record spikes actually entirely ignores
+        # sampling interval but throws exception if it is not set
         if self.record_spikes:
-            self.e_cells.record("spikes")
+            self.e_cells.record("spikes", sampling_interval=100.0)
 
         if self.record_bias:
-            raise NotImplementedError()
-            self.e_cells.record("beta")
+            self.e_cells.record("bias", sampling_interval=100.0)
 
         if self.record_membrane:
-            self.e_cells.record("v")
+            self.e_cells.record("v", sampling_interval=100.0)
 
         e_poisson = sim.Population(NE, sim.SpikeSourcePoisson(rate=p_rate, duration=simtime),
                                    label="%s - e_poisson" % name)
@@ -328,18 +329,24 @@ class HCU(object):
     # Create an HCU suitable for training
     # Uses a non-adaptive neuron model and records biaseses
     @classmethod
-    def training(cls, name, sim, rng,
+    def training(cls, name, sim, rng, intrinsic_tau_z, intrinsic_tau_p,
                  simtime, stim_spike_times):
         # Copy base cell parameters
         e_cell_params = cell_params.copy()
         e_cell_params["tau_syn_E2"] = tau_syn_nmda
+        e_cell_params["phi"] = 0.05
+        e_cell_params["f_max"] = 20.0
+        e_cell_params["tau_z"] = intrinsic_tau_z
+        e_cell_params["tau_p"] = intrinsic_tau_p
+        print intrinsic_tau_z, intrinsic_tau_p
+        e_cell_params["bias_enabled"] = False
         #e_cell_params["flush_time"] = 500.0
 
         assert len(stim_spike_times) == NE
         
         # Build HCU
         return cls(name=name, sim=sim, rng=rng,
-                   e_cell_model=IF_curr_dual_exp, i_cell_model=sim.IF_curr_exp,
+                   e_cell_model=bcpnn.IF_curr_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
                    stim_spike_times=stim_spike_times,
                    wta=False, background_weight=0.2, stim_weight=2.0, simtime=simtime,
@@ -442,11 +449,12 @@ def train_seperate_discrete(tau_zis, tau_zjs, tau_p, minicolumn_indices, trainin
     # This configuration is intended for sweeping kernel shapes so check
     # the lists are the same length. Then allocate an HCU for each configuration
     assert len(tau_zis) == len(tau_zjs)
-    num_hcu = len(tau_zis)
 
     # Build HCUs configured for training
     hcus = [HCU.training(name="%u" % h, sim=sim, rng=rng, simtime=training_duration,
-                         stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for h in range(num_hcu)]
+                         intrinsic_tau_z=tau_zj, intrinsic_tau_p=tau_p,
+                         stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons))
+            for h, tau_zj in enumerate(tau_zjs)]
 
     # Train with essentially zeroed weights
     # **HACK** not quite zero incase the tools try some 'cunning' optimisation
@@ -469,10 +477,8 @@ def train_seperate_discrete(tau_zis, tau_zjs, tau_p, minicolumn_indices, trainin
             tau_zj=tau_zj,
             tau_p=tau_p,
             f_max=20.0,
-            phi=0.05,
             w_max=JE,
             weights_enabled=False,
-            bias_enabled=False,
             plasticity_enabled=True)
 
         connection = HCUConnection.traininga(
@@ -512,6 +518,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
 
     # Build HCUs configured for training
     hcus = [HCU.training(name="%u" % h, sim=sim, rng=rng, simtime=training_duration,
+                         intrinsic_tau_z=ampa_tau_zj, intrinsic_tau_p=tau_p,
                          stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for h in range(num_hcu)]
 
     # Loop through all hcu products
@@ -526,10 +533,8 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
             tau_zj=ampa_tau_zj,
             tau_p=tau_p,
             f_max=20.0,
-            phi=0.05,
             w_max=JE,
             weights_enabled=False,
-            bias_enabled=False,
             plasticity_enabled=True,
             weight=0.0,
             delay=hcu_delay)
@@ -539,10 +544,8 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
             tau_zj=nmda_tau_zj,
             tau_p=tau_p,
             f_max=20.0,
-            phi=0.05,
             w_max=JE,
             weights_enabled=False,
-            bias_enabled=False,
             plasticity_enabled=True,
             weight=0.0,
             delay=hcu_delay)
@@ -590,10 +593,8 @@ def test_discrete(connection_weight_filenames, hcu_biases,
         tau_zj=5.0,                  # ms
         tau_eligibility=1000.0,       # ms
         max_firing_frequency=20.0,    # Hz
-        phi=0.05,                     # nA
         w_max=JE,                    # nA / uS for conductance
         weights_enabled=True,
-        bias_enabled=False,
         plasticity_enabled=False)
 
     # Create synapse dynamics objects
@@ -617,74 +618,6 @@ def test_discrete(connection_weight_filenames, hcu_biases,
             pre_hcu=hcu_pre, post_hcu=hcu_post,
             ampa_gain=ampa_gain, nmda_gain=nmda_gain,
             connection_weight_filename=connection_weight_filename, delay=hcu_delay, synapse_dynamics=synapse_dynamics)
-
-    # Run simulation
-    sim.run(testing_simtime)
-
-    # Read results from HCUs
-    results = [hcu.read_results() for hcu in hcus]
-
-    return results, sim.end
-
-def test_continuous(connection_weights, hcu_biases, ampa_gain, nmda_gain,
-                  stim_sequences, tuning_prop,
-                  start_delay, testing_stim_time, pause_between_stim,
-                  delay_model, num_hcu, num_mcu_neurons):
-
-    assert len(hcu_biases) == num_hcu, "An array of biases must be provided for each HCU"
-    assert len(connection_weights) == (num_hcu ** 2), "A tuple of weight matrices must be provided for each HCU->HCU product"
-
-    # Generate stimuli for each cell in network
-    stimuli_spikes = generate_continuous_stimuli2(stim_sequences, tuning_prop,
-                                                 start_delay, testing_stim_time, pause_between_stim,
-                                                 num_hcu, num_mcu_neurons)
-
-    # Setup simulator and seed RNG
-    sim.setup(timestep=dt, min_delay=dt, max_delay=15.0 * dt)
-    rng = NumpyRNG(seed=1)
-
-    # **YUCK** something not right here
-    sim.set_number_of_neurons_per_core(sim.IF_curr_exp, 150)
-    sim.set_number_of_neurons_per_core(sim.IF_curr_dual_exp, 80)
-    sim.set_number_of_neurons_per_core(bcpnn.IF_curr_dual_exp_ca2_adaptive, 75)
-
-    # Plastic excitatory->excitatory connections
-    # **HACK** not actually plastic - just used to force signed weights
-    bcpnn_model = bcpnn.BCPNNMechanism(
-        tau_zi=5.0,                  # ms
-        tau_zj=5.0,                  # ms
-        tau_eligibility=1000.0,       # ms
-        max_firing_frequency=20.0,    # Hz
-        phi=0.05,                     # nA
-        w_max=JE,                    # nA / uS for conductance
-        weights_enabled=True,
-        bias_enabled=False,
-        plasticity_enabled=False)
-
-    # Create synapse dynamics objects
-    synapse_dynamics = sim.SynapseDynamics(slow=bcpnn_model)
-
-    # Calculate testing duration
-    testing_simtime = start_delay + (testing_stim_time * len(stim_sequences)) + (pause_between_stim * (len(stim_sequences) - 1))
-
-    # Build HCUs configured for testing
-    hcus = [HCU.testing(name="%u" % i, sim=sim, rng=rng,
-                        bias=bias[:,2], simtime=testing_simtime,
-                        stim_spike_times=stimuli_spikes[(i * NE): ((i + 1) * NE)]) for i, bias in enumerate(hcu_biases)]
-
-    # Loop through all hcu products and their corresponding connection weight
-    for connection_weight, ((i_pre, hcu_pre), (i_post, hcu_post)) in zip(connection_weights, itertools.product(enumerate(hcus), repeat=2)):
-        # Use delay model to calculate delay
-        hcu_delay = delay_model(i_pre, i_post)
-
-        logger.info("Connecting HCU %u->%u with delay %ums" % (i_pre, i_post, hcu_delay))
-
-        # Build connections
-        connection = HCUConnection.testing(
-            sim=sim,
-            pre_hcu=hcu_pre, post_hcu=hcu_post,
-            ampa_gain=ampa_gain, nmda_gain=nmda_gain,
-            connection_weight=connection_weight, delay=hcu_delay, synapse_dynamics=synapse_dynamics)
 
     # Run simulation
     sim.run(testing_simtime)
