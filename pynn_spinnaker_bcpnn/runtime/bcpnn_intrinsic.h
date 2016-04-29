@@ -15,8 +15,7 @@ using namespace Common::FixedPointNumber;
 //-----------------------------------------------------------------------------
 namespace BCPNN
 {
-template<unsigned int StarFixedPoint, unsigned int TraceFixedPoint,
-  unsigned int LnLUTShift>
+template<unsigned int TraceFixedPoint, unsigned int LnLUTShift>
 class BCPNNIntrinsic
 {
 private:
@@ -24,11 +23,6 @@ private:
   // Typedefines
   //-----------------------------------------------------------------------------
   typedef Pair Trace;
-
-  //-----------------------------------------------------------------------------
-  // Constants
-  //-----------------------------------------------------------------------------
-  static const int32_t StarFixedPointOne = (1 << StarFixedPoint);
 
 public:
   //-----------------------------------------------------------------------------
@@ -51,21 +45,17 @@ public:
   {
     // Calculate new trace values
     // **TODO** could we store these scaled by Aj?
-    const int32_t newZjStar = __smulbb(m_ZjStarDecay, m_Traces[neuron].m_Word) >> StarFixedPoint;
-    const int32_t newPjStar = __smulbt(m_PjStarDecay, m_Traces[neuron].m_Word) >> StarFixedPoint;
+    const int32_t newZjStar = __smulbb(m_ZjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
+    const int32_t newPjStar = __smulbt(m_PjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
     m_Traces[neuron] = Trace(newZjStar, newPjStar);
 
-    // If bias is enabled
+    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tZj*:%d, Pj*:%d",
+              newZjStar, newPjStar);
+
+    // If bias is enabled, calculate it and return
     if(m_BiasEnabled)
     {
-      // Scale trace components by Aj
-      // **NOTE** in this situation, as they are both in the
-      // bottom could be done after subtraction
-      const int32_t scaledZjStar = __smulbb(m_Aj, newZjStar);
-      const int32_t scaledPjStar = __smulbb(m_Aj, newPjStar);
-
-      // Calculate bias and return
-      return CalculateBias(scaledZjStar, scaledPjStar);
+      return CalculateBias(newZjStar, newPjStar);
     }
     // Otherwise, return 0
     else
@@ -78,12 +68,8 @@ public:
   {
     if(channel == RecordingChannelBias)
     {
-      // Extract components from trace and scale by Aj
-      const int32_t scaledZjStar = __smulbb(m_Aj, m_Traces[neuron].m_Word);
-      const int32_t scaledPjStar = __smulbt(m_Aj, m_Traces[neuron].m_Word);
-
       // Calculate bias and return
-      return CalculateBias(scaledZjStar, scaledPjStar);
+      return CalculateBias(m_Traces[neuron].m_HalfWords[0], m_Traces[neuron].m_HalfWords[1]);
     }
     else
     {
@@ -95,11 +81,11 @@ public:
 
   void ApplySpike(unsigned int neuron, bool spiked)
   {
-    // If neuron has spiked, add one to Zj* and Pj* traces
+    // If neuron has spiked, add Aj to Zj* and Pj* traces
     if(spiked)
     {
-      m_Traces[neuron].m_HalfWords[0] += StarFixedPointOne;
-      m_Traces[neuron].m_HalfWords[1] += StarFixedPointOne;
+      m_Traces[neuron].m_HalfWords[0] += m_Aj;
+      m_Traces[neuron].m_HalfWords[1] += m_Aj;
     }
   }
 
@@ -142,17 +128,16 @@ private:
   //-----------------------------------------------------------------------------
   // Private methods
   //-----------------------------------------------------------------------------
-  S1615 CalculateBias(int32_t scaledZjStar, int32_t scaledPjStar) const
+  S1615 CalculateBias(int32_t zjStar, int32_t pjStar) const
   {
     // From these calculate Pj
-    // Now, if only we could subtract with __smlabt :)
-    const int32_t pj = (scaledZjStar - scaledPjStar) >> StarFixedPoint;
+    const int32_t pj = zjStar - pjStar;
 
     // Calculate log
     const int32_t logPj = m_LnLUT.Get(pj + m_Epsilon);
 
     // Multiply by phi to scale into S1615
-    const S1615 bias = Mul16<TraceFixedPoint>(logPj, m_Phi);
+    const S1615 bias = Mul<int32_t, int32_t, TraceFixedPoint>(logPj, m_Phi);
 
     LOG_PRINT(LOG_LEVEL_TRACE, "\t\tPj:%d, log(Pj):%d, bias:%k",
               pj, logPj, bias);

@@ -15,7 +15,7 @@ namespace NeuronProcessor
 //-----------------------------------------------------------------------------
 typedef NeuronModels::IFCurr Neuron;
 typedef SynapseModels::Exp Synapse;
-typedef BCPNN::BCPNNIntrinsic<9, 13, 6> IntrinsicPlasticity;
+typedef BCPNN::BCPNNIntrinsic<13, 6> IntrinsicPlasticity;
 
 typedef InputBufferBase<uint32_t> InputBuffer;
 };
