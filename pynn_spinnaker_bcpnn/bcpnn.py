@@ -8,6 +8,7 @@ from pynn_spinnaker.spinnaker import regions
 # Import classes
 from pyNN.standardmodels.synapses import StandardSynapseType
 from pynn_spinnaker.spinnaker.utils import LazyArrayFloatToFixConverter
+from pynn_spinnaker.standardmodels.cells import IF_curr_exp
 
 # Import functions
 from copy import deepcopy
@@ -41,6 +42,72 @@ def s1813_ln_lut(input_shift):
 # Partially bound exponent decay LUT generator for S6.9 fixed-point
 s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
                             float_to_fixed=float_to_s69_no_copy)
+s1813_exp_decay = partial(lazy_param_map.exp_decay,
+                          float_to_fixed=float_to_s1813_no_copy)
+
+# ----------------------------------------------------------------------------
+# Intrinsic plasticity default parameters
+# ----------------------------------------------------------------------------
+intrinsic_plasticity_default_parameters = {
+    "tau_zj": 5.0,              # Time constant of postsynaptic primary trace (ms)
+    "tau_p": 1000.0,            # Time constant of probability trace (ms)
+    "f_max": 20.0,              # Firing frequency representing certainty (Hz)
+    "phi": 0.05,                # Scaling of intrinsic bias current from probability to current domain (nA)
+    "bias_enabled": True,       # Are the learnt biases passed to the neuron
+
+    # **YUCK** translation requires the same number of PyNN parameters
+    # as native parameters so these make up the numbers
+    "_placeholder1": None,
+}
+
+# ----------------------------------------------------------------------------
+# Intrinsic plasticity translations
+# ----------------------------------------------------------------------------
+intrinsic_plasticity_translations = build_translations(
+    ("tau_zj",              "tau_zj"),
+    ("tau_p",               "tau_p"),
+
+    ("f_max",               "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
+    ("phi",                 "phi"),
+    ("bias_enabled",        "bias_enabled"),
+
+    ("_placeholder1",       "epsilon",          "1000.0 / (f_max * tau_p)", "")
+)
+
+# ----------------------------------------------------------------------------
+# Intrinsic plasticity region map
+# ----------------------------------------------------------------------------
+intrinsic_plasticity_param_map = [
+    ("a_j", "i4", s1813),
+    ("phi", "i4", lazy_param_map.s1615),
+    ("epsilon", "i4", s1813),
+    ("tau_zj", "i4", s1813_exp_decay),
+    ("tau_p", "i4", s1813_exp_decay),
+    ("bias_enabled", "u4", lazy_param_map.integer),
+    (s1813_ln_lut(6), "128i2"),
+]
+
+# ------------------------------------------------------------------------------
+# IF_curr_exp
+# ------------------------------------------------------------------------------
+class IF_curr_exp(IF_curr_exp):
+    # Update translations to handle intrinsic plasticity parameters
+    translations = deepcopy(IF_curr_exp.translations)
+    translations.update(intrinsic_plasticity_translations)
+
+    # Update default parameters to handle intrinsic plasticity parameters
+    default_parameters = deepcopy(IF_curr_exp.default_parameters)
+    default_parameters.update(intrinsic_plasticity_default_parameters)
+
+    # Set intrinsic plasticity parameter map
+    intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
+
+    # Add bias to list of recordables
+    recordable = IF_curr_exp.recordable + ["bias"]
+
+    # Add units for bias
+    units = deepcopy(IF_curr_exp.units)
+    units.update({"bias": "nA"})
 
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
@@ -58,16 +125,12 @@ class BCPNNSynapse(StandardSynapseType):
             Time constant of probability trace (ms).
         `f_max`:
             Firing frequency representing certainty (Hz).
-        `phi`:
-            Scaling of intrinsic bias current from probability to current domain (nA).
         `w_max`:
             Scaling of weights from probability to current domain (nA/uS).
         `weights_enabled`:
             Are the learnt or pre-loaded weights passed to the ring-buffer.
         `plasticity_enabled`:
             Is plasticity enabled.
-        `bias_enabled`:
-            Are the learnt biases passed to the neuron.
 
     .. _`Knight, Tully et al (2016)`: http://journal.frontiersin.org/article/10.3389/fnana.2016.00037/full
     """
@@ -78,16 +141,15 @@ class BCPNNSynapse(StandardSynapseType):
         "tau_zj": 5.0,              # Time constant of postsynaptic primary trace (ms)
         "tau_p": 1000.0,            # Time constant of probability trace (ms)
         "f_max": 20.0,              # Firing frequency representing certainty (Hz)
-        "phi": 0.05,                # Scaling of intrinsic bias current from probability to current domain (nA)
         "w_max": 2.0,               # Scaling of weights from probability to current domain (nA/uS)
         "weights_enabled": True,    # Are the learnt or pre-loaded weights passed to the ring-buffer
         "plasticity_enabled": True, # Is plasticity enabled
-        "bias_enabled": True,       # Are the learnt biases passed to the neuron
 
         # **YUCK** translation requires the same number of PyNN parameters
         # as native parameters so these make up the numbers
         "_placeholder1": None,
         "_placeholder2": None,
+        "_placeholder3": None,
     }
 
 
@@ -103,13 +165,12 @@ class BCPNNSynapse(StandardSynapseType):
         ("weights_enabled",     "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
         ("plasticity_enabled",  "a_ij",             "(1000000.0 / (tau_zi + tau_zj)) / ((f_max ** 2) * ((1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))) - tau_p))", ""),
 
-        ("bias_enabled",        "epsilon",          "1000.0 / (f_max * tau_p)", ""),
-        ("_placeholder1",       "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
+        ("_placeholder1",       "epsilon",          "1000.0 / (f_max * tau_p)", ""),
+        ("_placeholder2",       "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
 
-        ("phi",                 "phi"),
         ("w_max",               "w_max"),
 
-        ("_placeholder2",       "mode",             "weights_enabled + (plasticity_enabled * 2) + (bias_enabled * 4)", ""),
+        ("_placeholder3",       "mode",             "weights_enabled + (plasticity_enabled * 2)", ""),
     )
 
     plasticity_param_map = [
@@ -120,7 +181,6 @@ class BCPNNSynapse(StandardSynapseType):
         ("epsilon", "i4", s1813),
         ("epsilon_squared", "i4", s1813),
 
-        ("phi", "i4", lazy_param_map.s1615),
         ("w_max", "i4", lazy_param_map.s32_weight_fixed_point),
 
         ("mode", "u4", lazy_param_map.integer),
@@ -134,8 +194,8 @@ class BCPNNSynapse(StandardSynapseType):
         (s1813_ln_lut(6), "128i2"),
     ]
 
-    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "phi", "w_max",
-                              "weights_enabled", "plasticity_enabled", "bias_enabled")
+    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "w_max",
+                              "weights_enabled", "plasticity_enabled")
 
     # How many post-synaptic neurons per core can a
     # SpiNNaker synapse_processor of this type handle
@@ -148,7 +208,6 @@ class BCPNNSynapse(StandardSynapseType):
     # BCPNN requires a synaptic matrix region
     # with support for extra per-synapse data
     synaptic_matrix_region_class = regions.ExtendedPlasticSynapticMatrix
-    plasticity_region_class = regions.Plasticity
 
     # How many timesteps of delay can DTCM ring-buffer handle
     # **NOTE** only 7 timesteps worth of delay can be handled by
