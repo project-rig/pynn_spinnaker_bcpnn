@@ -20,7 +20,7 @@ using namespace Common;
 using namespace Common::FixedPointNumber;
 
 //-----------------------------------------------------------------------------
-// BCPNN::SynapseTypes::BCPNN
+// BCPNN::BCPNNSynapse
 //-----------------------------------------------------------------------------
 namespace BCPNN
 {
@@ -31,7 +31,7 @@ template<typename C, unsigned int D, unsigned int I,
   unsigned int TauPLUTNumEntries, unsigned int TauPLUTShift,
   unsigned int LnLUTShift,
   unsigned int T>
-class BCPNN
+class BCPNNSynapse
 {
 private:
   //-----------------------------------------------------------------------------
