@@ -7,12 +7,15 @@
 // Common includes
 #include "common/disable_interrupts.h"
 #include "common/exp_decay_lut.h"
+#include "common/fixed_point_number.h"
 #include "common/log.h"
+#include "common/spinnaker.h"
 
 // Synapse processor includes
 #include "synapse_processor/plasticity/post_events.h"
 
 // BCPNN includes
+#include "bcpnn.h"
 #include "ln_lut.h"
 
 // Namespaces
@@ -25,28 +28,15 @@ using namespace Common::FixedPointNumber;
 namespace BCPNN
 {
 template<typename C, unsigned int D, unsigned int I,
-  unsigned int StarFixedPoint, unsigned int TraceFixedPoint,
-  unsigned int TauZiLUTNumEntries, unsigned int TauZiLUTShift,
-  unsigned int TauZjLUTNumEntries, unsigned int TauZjLUTShift,
-  unsigned int TauPLUTNumEntries, unsigned int TauPLUTShift,
-  unsigned int LnLUTShift,
-  unsigned int T>
+         unsigned int StarFixedPoint, unsigned int TraceFixedPoint,
+         unsigned int TauZiLUTNumEntries, unsigned int TauZiLUTShift,
+         unsigned int TauZjLUTNumEntries, unsigned int TauZjLUTShift,
+         unsigned int TauPLUTNumEntries, unsigned int TauPLUTShift,
+         unsigned int LnLUTShift,
+         unsigned int T>
 class BCPNNSynapse
 {
 private:
-  //-----------------------------------------------------------------------------
-  // Unions
-  //-----------------------------------------------------------------------------
-  union Pair
-  {
-    Pair(){}
-    Pair(int16_t a, int16_t b) : m_HalfWords{a, b} {}
-    Pair(int32_t w) : m_Word(w) {}
-
-    int16_t m_HalfWords[2];
-    int32_t m_Word;
-  };
-
   //-----------------------------------------------------------------------------
   // Typedefines
   //-----------------------------------------------------------------------------
@@ -222,7 +212,7 @@ public:
 
   bool ReadSDRAMData(uint32_t *region, uint32_t)
   {
-    LOG_PRINT(LOG_LEVEL_INFO, "BCPNN::BCPNN::ReadSDRAMData");
+    LOG_PRINT(LOG_LEVEL_INFO, "BCPNN::BCPNNSynapse::ReadSDRAMData");
 
     // Copy plasticity region data from region
     m_Ai = *reinterpret_cast<int32_t*>(region++);
@@ -232,14 +222,12 @@ public:
     m_Epsilon = *reinterpret_cast<int32_t*>(region++);
     m_EpsilonSquared = *reinterpret_cast<int32_t*>(region++);
 
-    m_PHI = *reinterpret_cast<int32_t*>(region++);
-
     m_MaxWeight = *reinterpret_cast<int32_t*>(region++);
 
     m_Mode = *region++;
 
-    LOG_PRINT(LOG_LEVEL_INFO, "\tAi:%d, Aj:%d, Aij:%d, epsilon:%d, epsilon squared:%d, phi:%d, max weight:%d, mode:%08x",
-              m_Ai, m_Aj, m_Aij, m_Epsilon, m_EpsilonSquared, m_PHI, m_MaxWeight, m_Mode);
+    LOG_PRINT(LOG_LEVEL_INFO, "\tAi:%d, Aj:%d, Aij:%d, epsilon:%d, epsilon squared:%d, max weight:%d, mode:%08x",
+              m_Ai, m_Aj, m_Aij, m_Epsilon, m_EpsilonSquared, m_MaxWeight, m_Mode);
 
     // Copy LUTs from subsequent memory
     m_TauZiLUT.ReadSDRAMData(region);
@@ -266,7 +254,7 @@ private:
 
   int32_t GetPij(Trace preTrace, Trace postTrace, int32_t pijStar)
   {
-    const int32_t correlation = Mul16<9>(preTrace.m_Word, postTrace.m_Word);
+    const int32_t correlation = StarMul16(preTrace.m_Word, postTrace.m_Word);
 
     return StarMul32(m_Aij, correlation - pijStar);
   }
@@ -459,6 +447,7 @@ private:
   //-----------------------------------------------------------------------------
   // Members
   //-----------------------------------------------------------------------------
+  // Presynaptic, postsynaptic and correlation scaling factors
   int32_t m_Ai;
   int32_t m_Aj;
   int32_t m_Aij;
@@ -466,9 +455,6 @@ private:
   // Epsilon values for eliminating ln(0)
   int32_t m_Epsilon;
   int32_t m_EpsilonSquared;
-
-  // Intrinsic bias multiplier
-  int32_t m_PHI;
 
   // Weight multiplier
   int32_t m_MaxWeight;
