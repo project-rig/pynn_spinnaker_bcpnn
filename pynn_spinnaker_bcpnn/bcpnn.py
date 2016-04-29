@@ -68,7 +68,7 @@ intrinsic_plasticity_translations = build_translations(
     ("tau_zj",              "tau_zj"),
     ("tau_p",               "tau_p"),
 
-    ("f_max",               "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
+    ("f_max",               "minus_a_j",        "1000.0 / (f_max * (tau_p - tau_zj))", ""),
     ("phi",                 "phi"),
     ("bias_enabled",        "bias_enabled"),
 
@@ -79,7 +79,7 @@ intrinsic_plasticity_translations = build_translations(
 # Intrinsic plasticity region map
 # ----------------------------------------------------------------------------
 intrinsic_plasticity_param_map = [
-    ("a_j", "i4", s1813),
+    ("minus_a_j", "i4", s1813),
     ("phi", "i4", lazy_param_map.s1615),
     ("epsilon", "i4", s1813),
     ("tau_zj", "i4", s1813_exp_decay),

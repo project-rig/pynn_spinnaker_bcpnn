@@ -44,7 +44,6 @@ public:
   S1615 GetIntrinsicCurrent(unsigned int neuron)
   {
     // Calculate new trace values
-    // **TODO** could we store these scaled by Aj?
     const int32_t newZjStar = __smulbb(m_ZjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
     const int32_t newPjStar = __smulbt(m_PjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
     m_Traces[neuron] = Trace(newZjStar, newPjStar);
@@ -84,8 +83,8 @@ public:
     // If neuron has spiked, add Aj to Zj* and Pj* traces
     if(spiked)
     {
-      m_Traces[neuron].m_HalfWords[0] += m_Aj;
-      m_Traces[neuron].m_HalfWords[1] += m_Aj;
+      m_Traces[neuron].m_HalfWords[0] += m_MinusAj;
+      m_Traces[neuron].m_HalfWords[1] += m_MinusAj;
     }
   }
 
@@ -108,7 +107,7 @@ public:
     }
 
     // Copy plasticity region data from region
-    m_Aj = *reinterpret_cast<int32_t*>(region++);
+    m_MinusAj = *reinterpret_cast<int32_t*>(region++);
     m_Phi = *reinterpret_cast<int32_t*>(region++);
     m_Epsilon = *reinterpret_cast<int32_t*>(region++);
     m_ZjStarDecay = *reinterpret_cast<int32_t*>(region++);
@@ -116,7 +115,7 @@ public:
     m_BiasEnabled = *region++;
 
     LOG_PRINT(LOG_LEVEL_INFO, "\tAj:%d, Phi:%k, Epsilon:%d, Zj* decay:%d, Pj* decay:%d, Bias enabled:%u",
-              m_Aj, m_Phi, m_Epsilon, m_ZjStarDecay, m_PjStarDecay, m_BiasEnabled);
+              -m_MinusAj, m_Phi, m_Epsilon, m_ZjStarDecay, m_PjStarDecay, m_BiasEnabled);
 
     // Copy LUTs from subsequent memory
     m_LnLUT.ReadSDRAMData(region);
@@ -131,7 +130,8 @@ private:
   S1615 CalculateBias(int32_t zjStar, int32_t pjStar) const
   {
     // From these calculate Pj
-    const int32_t pj = zjStar - pjStar;
+    // **NOTE** because both PJ* and Zj* are multiplied by -Aj this is negated
+    const int32_t pj = pjStar - zjStar;
 
     // Calculate log
     const int32_t logPj = m_LnLUT.Get(pj + m_Epsilon);
@@ -149,7 +149,7 @@ private:
   // Members
   //-----------------------------------------------------------------------------
   // Postsynaptic scaling factor
-  int32_t m_Aj;
+  int32_t m_MinusAj;
 
   // Intrinsic bias multiplier
   S1615 m_Phi;
