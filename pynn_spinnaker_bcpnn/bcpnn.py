@@ -29,21 +29,22 @@ def s1813(values, **kwargs):
     return float_to_s1813_no_copy(deepcopy(values))
 
 # Generate a LUT of ln(x) for x in (1.0, 2.0]
-def s1813_ln_lut(input_shift):
+def ln_lut(input_shift, float_to_fixed):
     # Calculate the size of the LUT
-    size = (1 << 13) >> input_shift
+    size = (1 << float_to_fixed.n_frac) >> input_shift
 
     # Build a lazy array of x values to calculate log for
     x = la.larray(np.arange(1.0, 2.0, 1.0 / float(size)))
 
     # Take log and convert to fixed point
-    return float_to_s1813_no_copy(la.log(x))
+    return float_to_fixed(la.log(x))
 
 # Partially bound exponent decay LUT generator for S6.9 fixed-point
 s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
                             float_to_fixed=float_to_s69_no_copy)
 s1813_exp_decay = partial(lazy_param_map.exp_decay,
                           float_to_fixed=float_to_s1813_no_copy)
+s1813_ln_lut = partial(ln_lut, float_to_fixed=float_to_s1813_no_copy)
 
 # ----------------------------------------------------------------------------
 # Intrinsic plasticity default parameters
