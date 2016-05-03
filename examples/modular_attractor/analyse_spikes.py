@@ -73,7 +73,7 @@ def display_spikes(e_spikes, i_spikes, raster_axis, rate_axis, num_hcus, num_mcu
 
 def load_spikes(filename, segment):
     hcu_spikes = None
-    with open(filename) as f:
+    with open(filename, "rb") as f:
         # Load data
         spiketrains = pickle.load(f).segments[segment].spiketrains
 
