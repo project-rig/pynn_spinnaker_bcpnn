@@ -2,6 +2,7 @@
 
 // Common includes
 #include "common/fixed_point_number.h"
+#include "common/utils.h"
 
 // BCPNN includes
 #include "bcpnn.h"
@@ -9,6 +10,7 @@
 
 // Namespaces
 using namespace Common::FixedPointNumber;
+using namespace Common::Utils;
 
 //-----------------------------------------------------------------------------
 // BCPNN::BCPNNIntrinsic
@@ -23,6 +25,15 @@ private:
   // Typedefines
   //-----------------------------------------------------------------------------
   typedef Pair Trace;
+
+  //-----------------------------------------------------------------------------
+  // Enumerations
+  //-----------------------------------------------------------------------------
+  enum Mode
+  {
+    ModeBiasEnabled       = (1 << 0),
+    ModePlasticityEnabled = (1 << 1),
+  };
 
 public:
   //-----------------------------------------------------------------------------
@@ -43,24 +54,32 @@ public:
   //-----------------------------------------------------------------------------
   S1615 GetIntrinsicCurrent(unsigned int neuron)
   {
-    // Calculate new trace values
-    const int32_t newZjStar = __smulbb(m_ZjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
-    const int32_t newPjStar = __smulbt(m_PjStarDecay, m_Traces[neuron].m_Word) >> TraceFixedPoint;
-    m_Traces[neuron] = Trace(newZjStar, newPjStar);
-
-    LOG_PRINT(LOG_LEVEL_TRACE, "\t\tZj*:%d, Pj*:%d",
-              newZjStar, newPjStar);
-
-    // If bias is enabled, calculate it and return
-    if(m_BiasEnabled)
+    // If plasticity is enabled
+    if((m_Mode & ModePlasticityEnabled) != 0)
     {
-      return CalculateBias(newZjStar, newPjStar);
+      // Calculate new trace values
+      const int32_t newZjStar = ShiftDownRound(__smulbb(m_ZjStarDecay, m_Traces[neuron].m_Word));
+      const int32_t newPjStar = ShiftDownRound(__smulbt(m_PjStarDecay, m_Traces[neuron].m_Word));
+      m_Traces[neuron] = Trace(newZjStar, newPjStar);
+
+      LOG_PRINT(LOG_LEVEL_TRACE, "\t\tZj*:%d, Pj*:%d",
+                newZjStar, newPjStar);
+
+      // If bias is enabled, return newly calculated bias
+      if((m_Mode & ModeBiasEnabled) != 0)
+      {
+        return CalculateBias(newZjStar, newPjStar);
+      }
     }
-    // Otherwise, return 0
-    else
+    // Otherwise, if bias is enabled, return current bias
+    else if((m_Mode & ModeBiasEnabled) != 0)
     {
-      return 0;
+      return CalculateBias(m_Traces[neuron].m_HalfWords[0],
+                           m_Traces[neuron].m_HalfWords[1]);
     }
+
+    // No bias should be provideds
+    return 0;
   }
 
   S1615 GetRecordable(RecordingChannel channel, unsigned int neuron) const
@@ -80,8 +99,8 @@ public:
 
   void ApplySpike(unsigned int neuron, bool spiked)
   {
-    // If neuron has spiked, add Aj to Zj* and Pj* traces
-    if(spiked)
+    // If neuron has spiked and plasticity is enabled, add Aj to Zj* and Pj* traces
+    if(spiked && (m_Mode & ModePlasticityEnabled) != 0)
     {
       m_Traces[neuron].m_HalfWords[0] += m_MinusAj;
       m_Traces[neuron].m_HalfWords[1] += m_MinusAj;
@@ -91,6 +110,20 @@ public:
   bool ReadSDRAMData(uint32_t *region, uint32_t, unsigned int numNeurons)
   {
     LOG_PRINT(LOG_LEVEL_INFO, "BCPNN::BCPNNIntrinsic::ReadSDRAMData");
+
+    // Copy plasticity region data from region
+    m_MinusAj = *reinterpret_cast<int32_t*>(region++);
+    m_Phi = *reinterpret_cast<int32_t*>(region++);
+    m_Epsilon = *reinterpret_cast<int32_t*>(region++);
+    m_ZjStarDecay = *reinterpret_cast<int32_t*>(region++);
+    m_PjStarDecay = *reinterpret_cast<int32_t*>(region++);
+    m_Mode = *region++;
+
+    LOG_PRINT(LOG_LEVEL_INFO, "\tAj:%d, Phi:%k, Epsilon:%d, Zj* decay:%d, Pj* decay:%d, Mode:%08x",
+              -m_MinusAj, m_Phi, m_Epsilon, m_ZjStarDecay, m_PjStarDecay, m_Mode);
+
+    // Copy LUTs from subsequent memory
+    m_LnLUT.ReadSDRAMData(region);
 
     // Allocate a trace for each neuron
     m_Traces = (Trace*)spin1_malloc(numNeurons * sizeof(Trace));
@@ -105,21 +138,7 @@ public:
     {
       m_Traces[i].m_Word = 0;
     }
-
-    // Copy plasticity region data from region
-    m_MinusAj = *reinterpret_cast<int32_t*>(region++);
-    m_Phi = *reinterpret_cast<int32_t*>(region++);
-    m_Epsilon = *reinterpret_cast<int32_t*>(region++);
-    m_ZjStarDecay = *reinterpret_cast<int32_t*>(region++);
-    m_PjStarDecay = *reinterpret_cast<int32_t*>(region++);
-    m_BiasEnabled = *region++;
-
-    LOG_PRINT(LOG_LEVEL_INFO, "\tAj:%d, Phi:%k, Epsilon:%d, Zj* decay:%d, Pj* decay:%d, Bias enabled:%u",
-              -m_MinusAj, m_Phi, m_Epsilon, m_ZjStarDecay, m_PjStarDecay, m_BiasEnabled);
-
-    // Copy LUTs from subsequent memory
-    m_LnLUT.ReadSDRAMData(region);
-
+    
     return true;
   }
 
@@ -145,6 +164,12 @@ private:
     return bias;
   }
 
+  static int32_t ShiftDownRound(int32_t valueShifted)
+  {
+    const int32_t value = valueShifted >> (TraceFixedPoint - 1);
+    return (value >> 1) + (value & 0x1);
+  }
+
   //-----------------------------------------------------------------------------
   // Members
   //-----------------------------------------------------------------------------
@@ -161,8 +186,8 @@ private:
   int32_t m_ZjStarDecay;
   int32_t m_PjStarDecay;
 
-  // Should bias actually be returned
-  uint32_t m_BiasEnabled;
+  // What mode should intrinsic plasticity operate in
+  uint32_t m_Mode;
 
   // Per neuron traces
   Trace *m_Traces;
