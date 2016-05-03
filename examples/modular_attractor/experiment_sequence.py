@@ -4,6 +4,7 @@ import itertools
 import logging
 import numpy
 import os
+import pickle
 import sys
 
 import network
@@ -19,13 +20,15 @@ class Mode(enum.Enum):
     test_asymmetrical  = 3
     test_symmetrical   = 4
 
-mode = Mode.train_asymmetrical
+mode = Mode.test_asymmetrical
 
 hcu_grid_size = 1
 num_hcu = hcu_grid_size ** 2
 num_mcu_neurons = 100
 
 record_membrane = True
+
+spinnaker_hostname = "192.168.1.1"
 
 tau_p = 2000
 
@@ -58,7 +61,7 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
     hcu_results, connection_results, end_simulation = network.train_discrete(network.tau_syn_ampa_gaba, network.tau_syn_ampa_gaba,
                                                                              network.tau_syn_nmda, nmda_tau_zj, tau_p,
                                                                              minicolumn_indices, training_stim_time, training_interval_time,
-                                                                             delay_model, num_hcu, num_mcu_neurons, spinnaker_hostname="192.168.1.1")
+                                                                             delay_model, num_hcu, num_mcu_neurons, spinnaker_hostname=spinnaker_hostname)
 
     # Save weights for all connections
     for i, (ampa_weight_writer, nmda_weight_writer) in enumerate(connection_results):
@@ -109,10 +112,21 @@ else:
     # Load biases for each HCU
     hcu_biases = []
     for i in range(num_hcu):
-        hcu_biases.append(numpy.load("%s/hcu_%u_bias.npy" % (folder, i)))
+        # Open pickle file
+        with open("%s/hcu_%u_e_data.pkl" % (folder, i), "rb") as f:
+            # Load pickled data
+            pickled_data = pickle.load(f)
+
+            # Filter out bias
+            hcu_bias = pickled_data.segments[0].filter(name="bias")[0]
+
+            # Add final recorded bias to list
+            hcu_biases.append(hcu_bias[-1,:])
 
     # Build correct filename format string for weights
-    nmda_weight_filename_format = "%s/connection_%u_e_e_nmda.npy" if mode == Mode.test_asymmetrical else "%s/connection_%u_e_e_nmda_symmetrical.npy"
+    nmda_weight_filename_format = ("%s/connection_%u_e_e_nmda_asymmetrical.npy"
+                                   if mode == Mode.test_asymmetrical
+                                   else "%s/connection_%u_e_e_nmda_symmetrical.npy")
 
     # Load weights for each connection
     connection_weights = []
@@ -129,19 +143,17 @@ else:
     hcu_results, end_simulation = network.test_discrete(connection_weights, hcu_biases,
                                                         gain, gain / ampa_nmda_ratio, tau_ca2, i_alpha,
                                                         stim_minicolumns, testing_simtime, delay_model,
-                                                        num_hcu, num_mcu_neurons, record_membrane)
+                                                        num_hcu, num_mcu_neurons, record_membrane,
+                                                        spinnaker_hostname=spinnaker_hostname)
 
-    # Build correct filename format string for spikes
-    filename_formats = [
-        "%s/hcu_%u_e_testing_spikes.npy" if mode == Mode.test_asymmetrical else "%s/hcu_%u_e_testing_spikes_symmetrical.npy",
-        "%s/hcu_%u_i_testing_spikes.npy" if mode == Mode.test_asymmetrical else "%s/hcu_%u_i_testing_spikes_symmetrical.npy",
-        "%s/hcu_%u_e_testing_membrane.npy" if mode == Mode.test_asymmetrical else "%s/hcu_%u_e_testing_membrane_symmetrical.npy"
-    ]
+    # Build correct filename format string for data
+    filename_format = ("%s/hcu_%u_e_testing_data_asymmetrical.pkl"
+                       if mode == Mode.test_asymmetrical
+                       else "%s/hcu_%u_e_testing_data_symmetrical.pkl")
 
-    # Loop through the HCU results and save spikes and bias
-    for i, writers in enumerate(hcu_results):
-        for writer, filename_format in zip(writers, filename_formats):
-            writer(filename_format % (folder, i))
+    # Loop through the HCU results and save spikes data
+    for i, hcu_data_writer in enumerate(hcu_results):
+        hcu_data_writer(filename_format % (folder, i))
 
     # Once data is read, end simulation
     end_simulation()

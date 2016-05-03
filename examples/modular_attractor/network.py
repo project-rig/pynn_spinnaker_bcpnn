@@ -9,6 +9,7 @@ import random
 
 # Import classes
 from pyNN.random import NumpyRNG, RandomDistribution
+from pynn_spinnaker_if_curr_ca2_adaptive import IF_curr_ca2_adaptive_exp
 from pynn_spinnaker_if_curr_dual_exp import IF_curr_dual_exp
 
 # Import simulator
@@ -300,27 +301,7 @@ class HCU(object):
 
         # Build HCU
         return cls(name=name, sim=sim, rng=rng,
-                   e_cell_model=bcpnn.IF_curr_dual_exp_ca2_adaptive, i_cell_model=sim.IF_curr_exp,
-                   e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   stim_spike_times=stim_spike_times,
-                   wta=True, background_weight=JE, stim_weight=4.0, simtime=simtime,
-                   record_bias=False, record_spikes=True, record_membrane=record_membrane)
-
-    @classmethod
-    def testing(cls, name, sim, rng,
-                bias,
-                simtime, stim_spike_times,
-                record_membrane):
-
-        # Copy base cell parameters
-        e_cell_params = cell_params.copy()
-        e_cell_params["tau_syn_E2"] = tau_syn_nmda
-
-        assert len(stim_spike_times) == NE
-
-        # Build HCU
-        return cls(name=name, sim=sim, rng=rng,
-                   e_cell_model=IF_curr_dual_exp, i_cell_model=sim.IF_curr_exp,
+                   e_cell_model=IF_curr_ca2_adaptive_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
                    stim_spike_times=stim_spike_times,
                    wta=True, background_weight=JE, stim_weight=4.0, simtime=simtime,
@@ -416,7 +397,8 @@ class HCUConnection(object):
     def testing(cls, sim,
                 pre_hcu, post_hcu,
                 ampa_gain, nmda_gain,
-                connection_weight_filename, delay, synapse_dynamics):
+                ampa_synapse, nmda_synapse,
+                connection_weight_filename, delay):
         # Build connectors
         ampa_connector = sim.FromListConnector(convert_weights_to_list(connection_weight_filename[0], delay, ampa_gain))
         nmda_connector = sim.FromListConnector(convert_weights_to_list(connection_weight_filename[1], delay, nmda_gain))
@@ -424,7 +406,7 @@ class HCUConnection(object):
         return cls(sim=sim,
                    pre_hcu=pre_hcu, post_hcu=post_hcu,
                    ampa_connector=ampa_connector, nmda_connector=nmda_connector,
-                   synapse_dynamics=synapse_dynamics,
+                   ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse,
                    record_ampa=False, record_nmda=False)
 
 #------------------------------------------------------------------------------
@@ -572,37 +554,18 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
 def test_discrete(connection_weight_filenames, hcu_biases,
                   ampa_gain, nmda_gain, tau_ca2, i_alpha,
                   stim_minicolumns, testing_simtime, delay_model,
-                  num_hcu, num_mcu_neurons, record_membrane):
+                  num_hcu, num_mcu_neurons, record_membrane, **setup_kwargs):
 
     assert len(hcu_biases) == num_hcu, "An array of biases must be provided for each HCU"
     assert len(connection_weight_filenames) == (num_hcu ** 2), "A tuple of weight matrix filenames must be provided for each HCU->HCU product"
 
     # Setup simulator and seed RNG
-    sim.setup(timestep=dt, min_delay=dt, max_delay=15.0 * dt)
+    sim.setup(timestep=dt, min_delay=dt, max_delay=7.0 * dt, **setup_kwargs)
     rng = NumpyRNG(seed=1)
-
-    # **YUCK** something not right here
-    sim.set_number_of_neurons_per_core(sim.IF_curr_exp, 150)
-    sim.set_number_of_neurons_per_core(sim.IF_curr_dual_exp, 80)
-    sim.set_number_of_neurons_per_core(bcpnn.IF_curr_dual_exp_ca2_adaptive, 75)
-
-    # Plastic excitatory->excitatory connections
-    # **HACK** not actually plastic - just used to force signed weights
-    bcpnn_model = bcpnn.BCPNNMechanism(
-        tau_zi=5.0,                  # ms
-        tau_zj=5.0,                  # ms
-        tau_eligibility=1000.0,       # ms
-        max_firing_frequency=20.0,    # Hz
-        w_max=JE,                    # nA / uS for conductance
-        weights_enabled=True,
-        plasticity_enabled=False)
-
-    # Create synapse dynamics objects
-    synapse_dynamics = sim.SynapseDynamics(slow=bcpnn_model)
 
     # Build HCUs configured for testing
     hcus = [HCU.testing_adaptive(name="%u" % i, sim=sim, rng=rng,
-                                 bias=bias[:,2], tau_ca2=tau_ca2, i_alpha=i_alpha, simtime=testing_simtime, record_membrane=record_membrane,
+                                 bias=bias, tau_ca2=tau_ca2, i_alpha=i_alpha, simtime=testing_simtime, record_membrane=record_membrane,
                                  stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for i, bias in enumerate(hcu_biases)]
 
     # Loop through all hcu products and their corresponding connection weight
@@ -612,12 +575,26 @@ def test_discrete(connection_weight_filenames, hcu_biases,
 
         logger.info("Connecting HCU %u->%u with delay %ums" % (i_pre, i_post, hcu_delay))
 
+        # **HACK** not actually plastic - just used to force signed weights
+        bcpnn_synapse = bcpnn.BCPNNSynapse(
+            tau_zi=tau_syn_ampa_gaba,
+            tau_zj=tau_syn_ampa_gaba,
+            tau_p=1000.0,
+            f_max=20.0,
+            w_max=JE,
+            weights_enabled=True,
+            plasticity_enabled=False,
+            weight=0.0,
+            delay=hcu_delay)
+
+
         # Build connections
         connection = HCUConnection.testing(
             sim=sim,
             pre_hcu=hcu_pre, post_hcu=hcu_post,
             ampa_gain=ampa_gain, nmda_gain=nmda_gain,
-            connection_weight_filename=connection_weight_filename, delay=hcu_delay, synapse_dynamics=synapse_dynamics)
+            ampa_synapse=bcpnn_synapse, nmda_synapse=bcpnn_synapse,
+            connection_weight_filename=connection_weight_filename, delay=hcu_delay)
 
     # Run simulation
     sim.run(testing_simtime)
