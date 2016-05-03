@@ -54,6 +54,15 @@ private:
   static const uint32_t IndexMask = ((1 << I) - 1);
   static const int32_t StarFixedPointOne = (1 << StarFixedPoint);
 
+  //-----------------------------------------------------------------------------
+  // Enumerations
+  //-----------------------------------------------------------------------------
+  enum Mode
+  {
+    ModeWeightsEnabled    = (1 << 0),
+    ModePlasticityEnabled = (1 << 1),
+  };
+
 public:
   //-----------------------------------------------------------------------------
   // Constants
@@ -109,72 +118,85 @@ public:
       const uint32_t delayAxonal = 0;
       const uint32_t postIndex = GetIndex(controlWord);
 
-      // Create update state from the Pij* component of plastic word
-      int32_t pIJStar = plasticWords->m_HalfWords[1];
-
-      // Apply axonal delay to last presynaptic spike and update tick
-      const uint32_t delayedLastUpdateTick = lastUpdateTick + delayAxonal;
-
-      // Get the post-synaptic window of events to be processed
-      // **NOTE** this is the window since the last UPDATE rather than the last presynaptic spike
-      const uint32_t windowBeginTick = (delayedLastUpdateTick >= delayDendritic) ?
-        (delayedLastUpdateTick - delayDendritic) : 0;
-      const uint32_t windowEndTick = tick + delayAxonal - delayDendritic;
-
-      // Get post event history within this window
-      auto postWindow = m_PostEventHistory[postIndex].GetWindow(windowBeginTick,
-                                                                windowEndTick);
-
-      LOG_PRINT(LOG_LEVEL_TRACE, "\t\tPerforming deferred synapse update for post neuron:%u", postIndex);
-      LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tWindow begin tick:%u, window end tick:%u: Previous time:%u, Num events:%u",
-          windowBeginTick, windowEndTick, postWindow.GetPrevTime(), postWindow.GetNumEvents());
-
-      // Process events in post-synaptic window
-      uint32_t lastCorrelationTime = delayedLastUpdateTick;
-      while (postWindow.GetNumEvents() > 0)
+      if((m_Mode & ModePlasticityEnabled) != 0)
       {
-        const uint32_t delayedPostTick = postWindow.GetNextTime() + delayDendritic;
+        // Create update state from the Pij* component of plastic word
+        int32_t pIJStar = plasticWords->m_HalfWords[1];
 
-        LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying post-synaptic event at delayed tick:%u",
-                  delayedPostTick);
+        // Apply axonal delay to last presynaptic spike and update tick
+        const uint32_t delayedLastUpdateTick = lastUpdateTick + delayAxonal;
 
-        // Update correlation based on post-spike
-        pIJStar = UpdateCorrelation(delayedPostTick, true,
+        // Get the post-synaptic window of events to be processed
+        // **NOTE** this is the window since the last UPDATE rather than the last presynaptic spike
+        const uint32_t windowBeginTick = (delayedLastUpdateTick >= delayDendritic) ?
+          (delayedLastUpdateTick - delayDendritic) : 0;
+        const uint32_t windowEndTick = tick + delayAxonal - delayDendritic;
+
+        // Get post event history within this window
+        auto postWindow = m_PostEventHistory[postIndex].GetWindow(windowBeginTick,
+                                                                  windowEndTick);
+
+        LOG_PRINT(LOG_LEVEL_TRACE, "\t\tPerforming deferred synapse update for post neuron:%u", postIndex);
+        LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tWindow begin tick:%u, window end tick:%u: Previous time:%u, Num events:%u",
+            windowBeginTick, windowEndTick, postWindow.GetPrevTime(), postWindow.GetNumEvents());
+
+        // Process events in post-synaptic window
+        uint32_t lastCorrelationTime = delayedLastUpdateTick;
+        while (postWindow.GetNumEvents() > 0)
+        {
+          const uint32_t delayedPostTick = postWindow.GetNextTime() + delayDendritic;
+
+          LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying post-synaptic event at delayed tick:%u",
+                    delayedPostTick);
+
+          // Update correlation based on post-spike
+          pIJStar = UpdateCorrelation(delayedPostTick, true,
+                                      lastCorrelationTime, pIJStar,
+                                      delayedLastUpdateTick, lastPreTrace,
+                                      m_TauZiLUT);
+
+          // Update last correlation time
+          lastCorrelationTime = delayedPostTick;
+
+          // Go onto next event
+          postWindow.Next(delayedPostTick);
+        }
+
+        const uint32_t delayedPreTick = tick + delayAxonal;
+        LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying pre-synaptic event at tick:%u, last post tick:%u",
+                  delayedPreTick, postWindow.GetPrevTime());
+
+        // Update correlation based on pre-spike/flush
+        pIJStar = UpdateCorrelation(delayedPreTick, !flush,
                                     lastCorrelationTime, pIJStar,
-                                    delayedLastUpdateTick, lastPreTrace,
-                                    m_TauZiLUT);
+                                    postWindow.GetPrevTime(), postWindow.GetPrevTrace(),
+                                    m_TauZjLUT);
 
-        // Update last correlation time
-        lastCorrelationTime = delayedPostTick;
+        // Calculate final state after all updates
+        PlasticSynapse finalState = CalculateFinalState(pIJStar,
+                                                        delayedPreTick, newPreTrace,
+                                                        postWindow.GetPrevTime(), postWindow.GetPrevTrace());
 
-        // Go onto next event
-        postWindow.Next(delayedPostTick);
+        // If this isn't a flush, add weight to ring-buffer
+        if(!flush && (m_Mode & ModeWeightsEnabled) != 0)
+        {
+          applyInputFunction(delayDendritic + delayAxonal + tick,
+            postIndex, finalState.m_HalfWords[0]);
+        }
+
+        // Write back updated synaptic word to plastic region
+        *plasticWords++ = finalState.m_Word;
       }
-
-      const uint32_t delayedPreTick = tick + delayAxonal;
-      LOG_PRINT(LOG_LEVEL_TRACE, "\t\t\tApplying pre-synaptic event at tick:%u, last post tick:%u",
-                delayedPreTick, postWindow.GetPrevTime());
-
-      // Update correlation based on pre-spike/flush
-      pIJStar = UpdateCorrelation(delayedPreTick, !flush,
-                                  lastCorrelationTime, pIJStar,
-                                  postWindow.GetPrevTime(), postWindow.GetPrevTrace(),
-                                  m_TauZjLUT);
-
-      // Calculate final state after all updates
-      PlasticSynapse finalState = CalculateFinalState(pIJStar,
-                                                      delayedPreTick, newPreTrace,
-                                                      postWindow.GetPrevTime(), postWindow.GetPrevTrace());
-
-      // If this isn't a flush, add weight to ring-buffer
-      /*if(!flush)
+      // Otherwise, if plasticity is disabled, but weights are enabled
+      else if(!flush && (m_Mode & ModeWeightsEnabled) != 0)
       {
+        // Apply weight from plastic word
         applyInputFunction(delayDendritic + delayAxonal + tick,
-          postIndex, finalState.m_HalfWords[0]);
-      }*/
+            postIndex, plasticWords->m_HalfWords[0]);
 
-      // Write back updated synaptic word to plastic region
-      *plasticWords++ = finalState.m_Word;
+        // Go onto next synaptic word
+        plasticWords++;
+      }
     }
 
     // Write back row and all plastic data to SDRAM
