@@ -305,6 +305,9 @@ class BCPNNSynapse(StandardSynapseType):
     # 8 element delay buffer - The last element is purely for output
     max_dtcm_delay_slots = 7
 
+    # Static weights are unsigned
+    signed_weight = True
+
     # BCPNN synapses require post-synaptic
     # spikes back-propagated to them
     requires_back_propagation = True
