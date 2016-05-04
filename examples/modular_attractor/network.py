@@ -9,8 +9,6 @@ import random
 
 # Import classes
 from pyNN.random import NumpyRNG, RandomDistribution
-from pynn_spinnaker_if_curr_ca2_adaptive import IF_curr_ca2_adaptive_exp
-from pynn_spinnaker_if_curr_dual_exp import IF_curr_dual_exp
 
 # Import simulator
 import pynn_spinnaker as sim
@@ -253,7 +251,7 @@ class HCU(object):
 
             logger.debug("Creating I->I GABA connection with connection probability %g, weight %g nA and delay %g ms." % (epsilon, JI, delay))
             sim.Projection(self.i_cells, self.i_cells,
-                           sim.FixedProbabilityConnector(p_connect=epsilony),
+                           sim.FixedProbabilityConnector(p_connect=epsilon),
                            sim.StaticSynapse(weight=JI, delay=delay),
                            receptor_type="inhibitory")
 
@@ -296,14 +294,15 @@ class HCU(object):
         e_cell_params["tau_ca2"] = tau_ca2
         e_cell_params["i_alpha"] = i_alpha
         e_cell_params["i_offset"] = bias
-
+        e_cell_params["bias_enabled"] = False
+        e_cell_params["plasticity_enabled"] = False
         assert len(stim_spike_times) == NE
 
         # Build HCU
         return cls(name=name, sim=sim, rng=rng,
-                   e_cell_model=IF_curr_ca2_adaptive_exp, i_cell_model=sim.IF_curr_exp,
+                   e_cell_model=bcpnn.IF_curr_ca2_adaptive_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   stim_spike_times=stim_spike_times,
+                   stim_spike_times=stim_spike_times, 
                    wta=True, background_weight=JE, stim_weight=4.0, simtime=simtime,
                    record_bias=False, record_spikes=True, record_membrane=record_membrane)
 
@@ -319,8 +318,8 @@ class HCU(object):
         e_cell_params["f_max"] = 20.0
         e_cell_params["tau_z"] = intrinsic_tau_z
         e_cell_params["tau_p"] = intrinsic_tau_p
-        print intrinsic_tau_z, intrinsic_tau_p
         e_cell_params["bias_enabled"] = False
+        e_cell_params["plasticity_enabled"] = True
         #e_cell_params["flush_time"] = 500.0
 
         assert len(stim_spike_times) == NE
