@@ -33,6 +33,7 @@ from pynn_spinnaker_if_curr_dual_exp import (
 # Create a converter functions to convert from float
 # to various fixed-point formats used by BCPNN
 float_to_s1813_no_copy = LazyArrayFloatToFixConverter(True, 32, 13, False)
+float_to_s213_no_copy = LazyArrayFloatToFixConverter(True, 16, 13, False)
 float_to_s69_no_copy = LazyArrayFloatToFixConverter(True, 16, 9, False)
 
 # Fixed-point conversion wrapper for parameter mapping
@@ -55,7 +56,7 @@ s69_exp_decay_lut = partial(lazy_param_map.exp_decay_lut,
                             float_to_fixed=float_to_s69_no_copy)
 s1813_exp_decay = partial(lazy_param_map.exp_decay,
                           float_to_fixed=float_to_s1813_no_copy)
-s1813_ln_lut = partial(ln_lut, float_to_fixed=float_to_s1813_no_copy)
+s213_ln_lut = partial(ln_lut, float_to_fixed=float_to_s213_no_copy)
 
 # ----------------------------------------------------------------------------
 # Intrinsic plasticity default parameters
@@ -93,7 +94,7 @@ intrinsic_plasticity_param_map = [
     ("tau_z", "i4", s1813_exp_decay),
     ("tau_p", "i4", s1813_exp_decay),
     ("mode", "u4", lazy_param_map.integer),
-    (s1813_ln_lut(6), "128i2"),
+    (s213_ln_lut(6), "128i2"),
 ]
 
 # ------------------------------------------------------------------------------
@@ -181,7 +182,7 @@ class IF_curr_ca2_adaptive_dual_exp(StandardCellType):
 
     # How many of these neurons per core can
     # a SpiNNaker neuron processor handle
-    max_neurons_per_core = 1024
+    max_neurons_per_core = 512
 
     neuron_region_class = regions.Neuron
 
@@ -282,7 +283,7 @@ class BCPNNSynapse(StandardSynapseType):
                                     num_entries=262, time_shift=2)),
         ("tau_p", "1136i2", partial(s69_exp_decay_lut,
                                     num_entries=1136, time_shift=4)),
-        (s1813_ln_lut(6), "128i2"),
+        (s213_ln_lut(6), "128i2"),
     ]
 
     comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "w_max",
