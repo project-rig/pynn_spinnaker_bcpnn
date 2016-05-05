@@ -18,5 +18,5 @@ typedef ExtraModels::CA2Adaptive Neuron;
 typedef ExtraModels::DualExp Synapse;
 typedef BCPNN::BCPNNIntrinsic<13, 6> IntrinsicPlasticity;
 
-typedef InputBufferBase<uint32_t> InputBuffer;
+typedef InputBufferBase<int32_t> InputBuffer;
 };

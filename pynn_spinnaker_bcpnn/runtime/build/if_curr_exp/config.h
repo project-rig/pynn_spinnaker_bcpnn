@@ -17,5 +17,5 @@ typedef NeuronModels::IFCurr Neuron;
 typedef SynapseModels::Exp Synapse;
 typedef BCPNN::BCPNNIntrinsic<13, 6> IntrinsicPlasticity;
 
-typedef InputBufferBase<uint32_t> InputBuffer;
+typedef InputBufferBase<int32_t> InputBuffer;
 };
