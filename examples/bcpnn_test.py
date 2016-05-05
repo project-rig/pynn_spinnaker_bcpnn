@@ -1,4 +1,4 @@
-import logging, numpy, pylab, random, sys
+import logging, numpy, pylab, random, sys, copy
 
 import pynn_spinnaker as sim
 import pynn_spinnaker_bcpnn as bcpnn
@@ -10,7 +10,7 @@ logger.addHandler(logging.StreamHandler())
 # SpiNNaker setup
 sim.setup(timestep=1.0, max_delay=8.0,
           spinnaker_hostname="192.168.1.1",
-          stop_on_spinnaker=False)
+          stop_on_spinnaker=True)
 
 #-------------------------------------------------------------------
 # General Parameters
@@ -28,6 +28,15 @@ cell_params = {
     'v_thresh'  : -55.4
 }
 
+bcpnn_cell_params = copy.deepcopy(cell_params)
+bcpnn_cell_params.update({
+    "tau_z": 10.0,       # ms
+    "tau_p": 1000.0,      # ms
+    "f_max": 50.0,        # Hz
+    "phi": 1.0,          # nA
+    "bias_enabled": False,
+    "plasticity_enabled": True,
+})
 
 #-------------------------------------------------------------------
 # Creation of neuron populations
@@ -37,7 +46,11 @@ def spike_vector_to_times(vector, timestep, delay):
         
 # Neuron populations
 pre_pop = sim.Population(1, sim.IF_curr_exp(**cell_params))
-post_pop = sim.Population(1, sim.IF_curr_exp(**cell_params))
+post_pop = sim.Population(1, bcpnn.IF_curr_exp(**bcpnn_cell_params))
+
+pre_pop.spinnaker_config.flush_time = 100.0
+
+post_pop.record("bias")
 
 # Load reference spike trains
 pre_spike_vector = numpy.load("pre_spikes_1.npy")
@@ -71,14 +84,24 @@ bcpnn_synapse = bcpnn.BCPNNSynapse(
     tau_zj=10.0,   # ms
     tau_p=1000.0,  # ms
     f_max=50.0,    # Hz
-    phi=0.05,      # nA
-    w_max=1.0)     # nA / uS for conductance
+    w_max=1.0,     # nA / uS for conductance
+    weights_enabled=False,
+    plasticity_enabled=True)
 
-sim.Projection(pre_pop, post_pop, sim.OneToOneConnector(), bcpnn_synapse)
+proj = sim.Projection(pre_pop, post_pop, sim.OneToOneConnector(), bcpnn_synapse)
 
 # Run simulation
 # **TODO** run for 10ms, get weights, rinse and repeat
 sim.run(sim_time)
+
+post_data = post_pop.get_data().segments[0].filter(name="bias")[0]
+weight_data = proj.get("weight", format="list", with_address=False)
+print "Weight:", weight_data
+
+
+figure, axis = pylab.subplots()
+axis.plot(numpy.arange(sim_time), post_data)
+pylab.show()
 
 # End simulation
 sim.end()
