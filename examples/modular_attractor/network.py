@@ -180,7 +180,7 @@ class HCU(object):
     def __init__(self, name, sim, rng,
                  e_cell_model, i_cell_model,
                  e_cell_params, i_cell_params,
-                 stim_spike_times,
+                 e_cell_flush_time, stim_spike_times,
                  wta, background_weight, stim_weight, simtime,
                  record_bias, record_spikes, record_membrane):
 
@@ -204,6 +204,9 @@ class HCU(object):
 
         # **HACK** issue #28 means plastic version needs clustering hack
         self.e_cells.spinnaker_config.max_neurons_per_core = 256
+
+        # Set flush time
+        self.e_cells.spinnaker_config.flush_time = e_cell_flush_time
 
         # **YUCK** record spikes actually entirely ignores
         # sampling interval but throws exception if it is not set
@@ -245,13 +248,13 @@ class HCU(object):
 
             logger.debug("Creating E->I AMPA connection with connection probability %g, weight %g nA and delay %g ms." % (epsilon, JE, delay))
             sim.Projection(self.e_cells, self.i_cells,
-                           sim.FixedProbabilityConnector(p_connect=epsilon),
+                           sim.FixedProbabilityConnector(p_connect=epsilon, rng=rng),
                            sim.StaticSynapse(weight=JE, delay=delay),
                            receptor_type="excitatory")
 
             logger.debug("Creating I->I GABA connection with connection probability %g, weight %g nA and delay %g ms." % (epsilon, JI, delay))
             sim.Projection(self.i_cells, self.i_cells,
-                           sim.FixedProbabilityConnector(p_connect=epsilon),
+                           sim.FixedProbabilityConnector(p_connect=epsilon, rng=rng),
                            sim.StaticSynapse(weight=JI, delay=delay),
                            receptor_type="inhibitory")
 
@@ -302,7 +305,7 @@ class HCU(object):
         return cls(name=name, sim=sim, rng=rng,
                    e_cell_model=bcpnn.IF_curr_ca2_adaptive_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   stim_spike_times=stim_spike_times, 
+                   e_cell_flush_time=None, stim_spike_times=stim_spike_times,
                    wta=True, background_weight=JE, stim_weight=4.0, simtime=simtime,
                    record_bias=False, record_spikes=True, record_membrane=record_membrane)
 
@@ -320,15 +323,13 @@ class HCU(object):
         e_cell_params["tau_p"] = intrinsic_tau_p
         e_cell_params["bias_enabled"] = False
         e_cell_params["plasticity_enabled"] = True
-        #e_cell_params["flush_time"] = 500.0
-
         assert len(stim_spike_times) == NE
         
         # Build HCU
         return cls(name=name, sim=sim, rng=rng,
                    e_cell_model=bcpnn.IF_curr_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   stim_spike_times=stim_spike_times,
+                   e_cell_flush_time=500.0, stim_spike_times=stim_spike_times,
                    wta=False, background_weight=0.2, stim_weight=2.0, simtime=simtime,
                    record_bias=True, record_spikes=True, record_membrane=False)
 
@@ -379,10 +380,10 @@ class HCUConnection(object):
     @classmethod
     def training(cls, sim,
                  pre_hcu, post_hcu,
-                 ampa_synapse, nmda_synapse):
+                 ampa_synapse, nmda_synapse, rng):
         # Build connector
-        ampa_connector = sim.FixedProbabilityConnector(p_connect=epsilon)
-        nmda_connector = sim.FixedProbabilityConnector(p_connect=epsilon)
+        ampa_connector = sim.FixedProbabilityConnector(p_connect=epsilon, rng=rng)
+        nmda_connector = sim.FixedProbabilityConnector(p_connect=epsilon, rng=rng)
 
         return cls(sim=sim,
                    pre_hcu=pre_hcu, post_hcu=post_hcu,
@@ -534,7 +535,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
         logger.info("Connecting HCU %u->%u with delay %ums" % (i_pre, i_post, hcu_delay))
         connections.append(HCUConnection.training(
             sim=sim, pre_hcu=hcu_pre, post_hcu=hcu_post,
-            ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse))
+            ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse, rng=rng))
 
     # Run simulation
     sim.run(training_duration)
@@ -567,6 +568,16 @@ def test_discrete(connection_weight_filenames, hcu_biases,
                                  bias=bias, tau_ca2=tau_ca2, i_alpha=i_alpha, simtime=testing_simtime, record_membrane=record_membrane,
                                  stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for i, bias in enumerate(hcu_biases)]
 
+    # **HACK** not actually plastic - just used to force signed weights
+    bcpnn_synapse = bcpnn.BCPNNSynapse(
+        tau_zi=tau_syn_ampa_gaba,
+        tau_zj=tau_syn_ampa_gaba,
+        tau_p=1000.0,
+        f_max=20.0,
+        w_max=JE,
+        weights_enabled=True,
+        plasticity_enabled=False)
+
     # Loop through all hcu products and their corresponding connection weight
     for connection_weight_filename, ((i_pre, hcu_pre), (i_post, hcu_post)) in zip(connection_weight_filenames, itertools.product(enumerate(hcus), repeat=2)):
         # Use delay model to calculate delay
@@ -574,21 +585,8 @@ def test_discrete(connection_weight_filenames, hcu_biases,
 
         logger.info("Connecting HCU %u->%u with delay %ums" % (i_pre, i_post, hcu_delay))
 
-        # **HACK** not actually plastic - just used to force signed weights
-        bcpnn_synapse = bcpnn.BCPNNSynapse(
-            tau_zi=tau_syn_ampa_gaba,
-            tau_zj=tau_syn_ampa_gaba,
-            tau_p=1000.0,
-            f_max=20.0,
-            w_max=JE,
-            weights_enabled=True,
-            plasticity_enabled=False,
-            weight=0.0,
-            delay=hcu_delay)
-
-
         # Build connections
-        connection = HCUConnection.testing(
+        HCUConnection.testing(
             sim=sim,
             pre_hcu=hcu_pre, post_hcu=hcu_post,
             ampa_gain=ampa_gain, nmda_gain=nmda_gain,
