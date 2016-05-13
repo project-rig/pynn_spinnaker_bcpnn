@@ -126,7 +126,7 @@ def combine_i_spikes(filenames, segment):
         # Load i spikes
         hcu_i_spikes = load_spikes(f, segment)
 
-        hcu_i_spikes[:0] += (i * NI)
+        hcu_i_spikes[:,0] += (i * NI)
 
         if i_spikes is None:
             i_spikes = hcu_i_spikes
