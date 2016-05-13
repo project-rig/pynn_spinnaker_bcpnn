@@ -278,7 +278,17 @@ class HCU(object):
     # Public methods
     #-------------------------------------------------------------------
     def read_results(self):
-        return lambda filename: self.e_cells.write_data(filename)
+        results = ()
+
+        if self.record_spikes:
+            e_spikes_writer = lambda filename: self.e_cells.write_data(filename)
+            results += (e_spikes_writer,)
+
+            if self.wta:
+                i_spikes_writer = lambda filename: self.i_cells.write_data(filename)
+                results += (e_spikes_writer,)
+
+        return results
 
     #-------------------------------------------------------------------
     # Class methods

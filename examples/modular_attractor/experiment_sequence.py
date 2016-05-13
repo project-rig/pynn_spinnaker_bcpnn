@@ -28,7 +28,7 @@ num_mcu_neurons = 100
 
 record_membrane = True
 
-spinnaker_kwargs = {"spinnaker_hostname": "192.168.1.1",
+spinnaker_kwargs = {"spalloc_num_boards": 1,
                     "stop_on_spinnaker": True}
 
 tau_p = 2000
@@ -76,8 +76,8 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
             nmda_weight_writer("%s/connection_%u_e_e_nmda_symmetrical.npy" % (folder, i))
 
     # Loop through the HCU results and save data to pickle format
-    for i, hcu_data_writer in enumerate(hcu_results):
-        hcu_data_writer("%s/hcu_%u_e_data.pkl" % (folder, i))
+    for i, (hcu_e_data_writer) in enumerate(hcu_results):
+        hcu_e_data_writer("%s/hcu_%u_e_data.pkl" % (folder, i))
 
     # Once data is read, end simulation
     end_simulation()
@@ -137,13 +137,17 @@ else:
                                                         **spinnaker_kwargs)
 
     # Build correct filename format string for data
-    filename_format = ("%s/hcu_%u_e_testing_data_asymmetrical.pkl"
-                       if mode == Mode.test_asymmetrical
-                       else "%s/hcu_%u_e_testing_data_symmetrical.pkl")
+    e_filename_format = ("%s/hcu_%u_e_testing_data_asymmetrical.pkl"
+                         if mode == Mode.test_asymmetrical
+                         else "%s/hcu_%u_e_testing_data_symmetrical.pkl")
+    i_filename_format = ("%s/hcu_%u_i_testing_data_asymmetrical.pkl"
+                         if mode == Mode.test_asymmetrical
+                         else "%s/hcu_%u_i_testing_data_symmetrical.pkl")
 
     # Loop through the HCU results and save spikes data
-    for i, hcu_data_writer in enumerate(hcu_results):
-        hcu_data_writer(filename_format % (folder, i))
+    for i, (hcu_e_data_writer, hcu_i_data_writer) in enumerate(hcu_results):
+        hcu_e_data_writer(e_filename_format % (folder, i))
+        hcu_i_data_writer(i_filename_format % (folder, i))
 
     # Once data is read, end simulation
     end_simulation()
