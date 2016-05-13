@@ -205,6 +205,10 @@ class HCU(object):
         # **HACK** issue #28 means plastic version needs clustering hack
         self.e_cells.spinnaker_config.max_neurons_per_core = 256
 
+        # **HACK** issue #18 means that we end up with 1024 wide clusters
+        # which needs a lot of 256-wide neuron and synapse cores
+        self.e_cells.spinnaker_config.max_cluster_width = 512
+
         # Set flush time
         self.e_cells.spinnaker_config.flush_time = e_cell_flush_time
 
