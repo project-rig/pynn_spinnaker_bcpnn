@@ -11,7 +11,7 @@ import network
 
 # Set PyNN spinnaker log level
 logger = logging.getLogger("pynn_spinnaker")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
 class Mode(enum.Enum):
@@ -28,7 +28,8 @@ num_mcu_neurons = 100
 
 record_membrane = True
 
-spinnaker_hostname = "192.168.1.1"
+spinnaker_kwargs = {"spinnaker_hostname": "192.168.1.1",
+                    "stop_on_spinnaker": True}
 
 tau_p = 2000
 
@@ -61,7 +62,7 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
     hcu_results, connection_results, end_simulation = network.train_discrete(network.tau_syn_ampa_gaba, network.tau_syn_ampa_gaba,
                                                                              network.tau_syn_nmda, nmda_tau_zj, tau_p,
                                                                              minicolumn_indices, training_stim_time, training_interval_time,
-                                                                             delay_model, num_hcu, num_mcu_neurons, spinnaker_hostname=spinnaker_hostname)
+                                                                             delay_model, num_hcu, num_mcu_neurons, **spinnaker_kwargs)
 
     # Save weights for all connections
     for i, (ampa_weight_writer, nmda_weight_writer) in enumerate(connection_results):
@@ -93,19 +94,7 @@ else:
     else:
         i_alpha = 0.15
         gain_per_hcu = 0.546328125
-    #i_alpha = 0.15
 
-    #gain_per_hcu = float(sys.argv[1])
-    #i_alpha = float(sys.argv[2])
-    #gain_per_hcu = 1.040625 * 1.05 * (1000.0 / float(tau_p))
-
-    # Increase gain for symmetrical replay
-    #if mode == Mode.test_symmetrical:
-    #   #gain_per_hcu *= 1.37890625
-    #   #ampa_nmda_ratio = 2.8828125
-    #   gain_per_hcu *= 0.906860531
-    #   ampa_nmda_ratio = 2.6875
-    
     # Calculate gain
     gain = gain_per_hcu / float(num_hcu)
 
@@ -121,7 +110,8 @@ else:
             hcu_bias = pickled_data.segments[0].filter(name="bias")[0]
 
             # Add final recorded bias to list
-            hcu_biases.append(hcu_bias[-1,:])
+            # **HACK** investigate where out by 1000 comes from!
+            hcu_biases.append(hcu_bias[-1,:] * 0.001)
 
     # Build correct filename format string for weights
     nmda_weight_filename_format = ("%s/connection_%u_e_e_nmda_asymmetrical.npy"
@@ -144,7 +134,7 @@ else:
                                                         gain, gain / ampa_nmda_ratio, tau_ca2, i_alpha,
                                                         stim_minicolumns, testing_simtime, delay_model,
                                                         num_hcu, num_mcu_neurons, record_membrane,
-                                                        spinnaker_hostname=spinnaker_hostname)
+                                                        **spinnaker_kwargs)
 
     # Build correct filename format string for data
     filename_format = ("%s/hcu_%u_e_testing_data_asymmetrical.pkl"
