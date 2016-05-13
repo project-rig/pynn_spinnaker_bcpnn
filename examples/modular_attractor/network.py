@@ -286,7 +286,7 @@ class HCU(object):
 
             if self.wta:
                 i_spikes_writer = lambda filename: self.i_cells.write_data(filename)
-                results += (e_spikes_writer,)
+                results += (i_spikes_writer,)
 
         return results
 
