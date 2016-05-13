@@ -242,7 +242,7 @@ class HCU(object):
 
             logger.debug("Creating I->E GABA connection with connection probability %g, weight %g nA and delay %g ms." % (epsilon, JI, delay))
             I_to_E = sim.Projection(self.i_cells, self.e_cells,
-                                    sim.FixedProbabilityConnector(p_connect=epsilon),
+                                    sim.FixedProbabilityConnector(p_connect=epsilon, rng=rng),
                                     sim.StaticSynapse(weight=JI, delay=delay),
                                     receptor_type="inhibitory")
 
