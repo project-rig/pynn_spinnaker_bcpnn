@@ -234,6 +234,9 @@ class HCU(object):
                                           label="%s - i_cells" % name)
             self.i_cells.initialize(v=membrane_voltage_distribution)
 
+            # Inhibitory cells generally fire at a low rate
+            self.i_cells.spinnaker_config.mean_firing_rate = 5.0
+
             if self.record_spikes:
                 self.i_cells.record("spikes")
 
