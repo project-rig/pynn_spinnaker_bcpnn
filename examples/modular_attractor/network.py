@@ -148,12 +148,15 @@ def poisson_generator(rate, t_start, t_stop):
     return [round(x) for x in spikes]
 
 def generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons):
+    # Calculate number of minicolumn in each hypercolumn
+    num_mcu_per_hcu = NE // num_mcu_neurons
+
     # Loop through minicolumn indices to stimulate
     spike_times = [[] for _ in range(NE)]
     for m, start_time, frequency, duration in stim_minicolumns:
         logger.debug("Stimulating minicolumn %u at %f Hz for %f ms from %f ms" % (m, frequency, duration, start_time))
         # Loop through neurons in minicolumn and add a block of noise to their spike times
-        for n in range(num_mcu_neurons * m, num_mcu_neurons * (m + 1)):
+        for n in range(m, NE, num_mcu_per_hcu):
             spike_times[n].extend(poisson_generator(frequency, start_time, start_time + duration))
     return spike_times
 
@@ -180,8 +183,8 @@ class HCU(object):
     def __init__(self, name, sim, rng,
                  e_cell_model, i_cell_model,
                  e_cell_params, i_cell_params,
-                 e_cell_flush_time, stim_spike_times,
-                 wta, background_weight, stim_weight, simtime,
+                 e_cell_flush_time, e_cell_mean_firing_rate,
+                 stim_spike_times, wta, background_weight, stim_weight, simtime,
                  record_bias, record_spikes, record_membrane):
 
         # Cache recording flags
@@ -201,6 +204,9 @@ class HCU(object):
         self.e_cells = sim.Population(NE, e_cell_model(**e_cell_params),
                                       label="%s - e_cells" % name)
         self.e_cells.initialize(v=membrane_voltage_distribution)
+
+        # Set e cell mean firing rate
+        self.e_cells.spinnaker_config.mean_firing_rate = e_cell_mean_firing_rate
 
         # **HACK** issue #28 means plastic version needs clustering hack
         self.e_cells.spinnaker_config.max_neurons_per_core = 256
@@ -305,6 +311,7 @@ class HCU(object):
     @classmethod
     def testing_adaptive(cls, name, sim, rng,
                          bias, tau_ca2, i_alpha,
+                         e_cell_mean_firing_rate,
                          simtime, stim_spike_times,
                          record_membrane):
 
@@ -322,15 +329,16 @@ class HCU(object):
         return cls(name=name, sim=sim, rng=rng,
                    e_cell_model=bcpnn.IF_curr_ca2_adaptive_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   e_cell_flush_time=None, stim_spike_times=stim_spike_times,
-                   wta=True, background_weight=JE, stim_weight=4.0, simtime=simtime,
-                   record_bias=False, record_spikes=True, record_membrane=record_membrane)
+                   e_cell_flush_time=None, e_cell_mean_firing_rate=e_cell_mean_firing_rate,
+                   stim_spike_times=stim_spike_times, wta=True, background_weight=JE,
+                   stim_weight=4.0, simtime=simtime, record_bias=False,
+                   record_spikes=True, record_membrane=record_membrane)
 
     # Create an HCU suitable for training
     # Uses a non-adaptive neuron model and records biaseses
     @classmethod
     def training(cls, name, sim, rng, intrinsic_tau_z, intrinsic_tau_p,
-                 simtime, stim_spike_times):
+                 simtime, e_cell_mean_firing_rate, stim_spike_times):
         # Copy base cell parameters
         e_cell_params = cell_params.copy()
         e_cell_params["tau_syn_E2"] = tau_syn_nmda
@@ -346,9 +354,10 @@ class HCU(object):
         return cls(name=name, sim=sim, rng=rng,
                    e_cell_model=bcpnn.IF_curr_dual_exp, i_cell_model=sim.IF_curr_exp,
                    e_cell_params=e_cell_params, i_cell_params=cell_params,
-                   e_cell_flush_time=500.0, stim_spike_times=stim_spike_times,
-                   wta=False, background_weight=0.2, stim_weight=2.0, simtime=simtime,
-                   record_bias=True, record_spikes=True, record_membrane=False)
+                   e_cell_flush_time=500.0, e_cell_mean_firing_rate=e_cell_mean_firing_rate,
+                   stim_spike_times=stim_spike_times, wta=False, background_weight=0.2,
+                   stim_weight=2.0, simtime=simtime, record_bias=True,
+                   record_spikes=True, record_membrane=False)
 
 #------------------------------------------------------------------------------
 # HCUConnection
@@ -429,75 +438,6 @@ class HCUConnection(object):
 #------------------------------------------------------------------------------
 # Train
 #------------------------------------------------------------------------------
-def train_seperate_discrete(tau_zis, tau_zjs, tau_p, minicolumn_indices, training_stim_time, training_interval_time,
-                            delay_model, num_mcu_neurons):
-     # Setup simulator and seed RNG
-    sim.setup(timestep=dt, min_delay=dt, max_delay=15.0 * dt)
-    rng = NumpyRNG(seed=1)
-
-    # Determine length of each epoch
-    epoch_duration = training_stim_time + training_interval_time
-
-    # Stimulate minicolumns in sequence
-    stim_minicolumns = [(m, float(i * epoch_duration), 20.0, training_stim_time)
-                        for i, m in enumerate(minicolumn_indices)]
-
-    # Calculate length of training required
-    training_duration = float(len(stim_minicolumns)) * epoch_duration
-
-    # This configuration is intended for sweeping kernel shapes so check
-    # the lists are the same length. Then allocate an HCU for each configuration
-    assert len(tau_zis) == len(tau_zjs)
-
-    # Build HCUs configured for training
-    hcus = [HCU.training(name="%u" % h, sim=sim, rng=rng, simtime=training_duration,
-                         intrinsic_tau_z=tau_zj, intrinsic_tau_p=tau_p,
-                         stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons))
-            for h, tau_zj in enumerate(tau_zjs)]
-
-    # Train with essentially zeroed weights
-    # **HACK** not quite zero incase the tools try some 'cunning' optimisation
-    ampa_weight = 0.00000000001
-    nmda_weight = 0.00000000001
-
-    logger.debug("AMPA weight:%fnA, NMDA weight:%f" % (ampa_weight, nmda_weight))
-
-    # Loop through all hcu products
-    connections = []
-    for i, (tau_zi, tau_zj, hcu) in enumerate(zip(tau_zis, tau_zjs, hcus)):
-        # Use delay model to calculate delay
-        hcu_delay = delay_model(i, i)
-
-        logger.info("Connecting HCU %u->%u with delay %ums" % (i, i, hcu_delay))
-
-        # Build BCPNN model
-        bcpnn_model = bcpnn.BCPNNSynapse(
-            tau_zi=tau_zi,
-            tau_zj=tau_zj,
-            tau_p=tau_p,
-            f_max=20.0,
-            w_max=JE,
-            weights_enabled=False,
-            plasticity_enabled=True)
-
-        connection = HCUConnection.traininga(
-            sim,
-            pre_hcu=hcu, post_hcu=hcu,
-            ampa_weight=ampa_weight, nmda_weight=nmda_weight, hcu_delay=hcu_delay,
-            ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse)
-        connections.append(connection)
-
-    # Run simulation
-    sim.run(training_duration)
-
-    # Read results from HCUs
-    hcu_results = [hcu.read_results() for hcu in hcus]
-
-    # Read results from inter-hcu connections
-    connection_results = [c.read_results() for c in connections]
-
-    return hcu_results, connection_results, sim.end
-
 def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
                    minicolumn_indices, training_stim_time, training_interval_time,
                    delay_model, num_hcu, num_mcu_neurons, **setup_kwargs):
@@ -515,9 +455,13 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
     # Calculate length of training required
     training_duration = float(len(stim_minicolumns)) * epoch_duration
 
+    # Calculate mean firing rate
+    e_cell_mean_firing_rate = (num_mcu_neurons / NE) * 20.0
+
     # Build HCUs configured for training
     hcus = [HCU.training(name="%u" % h, sim=sim, rng=rng, simtime=training_duration,
                          intrinsic_tau_z=ampa_tau_zj, intrinsic_tau_p=tau_p,
+                         e_cell_mean_firing_rate=e_cell_mean_firing_rate,
                          stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for h in range(num_hcu)]
 
     # Loop through all hcu products
@@ -580,9 +524,14 @@ def test_discrete(connection_weight_filenames, hcu_biases,
     sim.setup(timestep=dt, min_delay=dt, max_delay=7.0 * dt, **setup_kwargs)
     rng = NumpyRNG(seed=1)
 
+    # Calculate mean firing rate
+    e_cell_mean_firing_rate = (num_mcu_neurons / NE) * 20.0
+
     # Build HCUs configured for testing
     hcus = [HCU.testing_adaptive(name="%u" % i, sim=sim, rng=rng,
-                                 bias=bias, tau_ca2=tau_ca2, i_alpha=i_alpha, simtime=testing_simtime, record_membrane=record_membrane,
+                                 bias=bias, tau_ca2=tau_ca2, i_alpha=i_alpha,
+                                 e_cell_mean_firing_rate=e_cell_mean_firing_rate,
+                                 simtime=testing_simtime, record_membrane=record_membrane,
                                  stim_spike_times=generate_discrete_hcu_stimuli(stim_minicolumns, num_mcu_neurons)) for i, bias in enumerate(hcu_biases)]
 
     # **HACK** not actually plastic - just used to force signed weights

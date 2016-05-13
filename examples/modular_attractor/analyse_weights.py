@@ -24,12 +24,11 @@ def display_raw_weights(masked_weights, figure, axis):
 
 def display_mean_weights(masked_weights, figure, axis, num_mcu_neurons, palette):
     # Calculate number of minicolumns
-    num_minicolumns = masked_weights.shape[0] / num_mcu_neurons
-
+    num_minicolumns = masked_weights.shape[0] // num_mcu_neurons
     mean_weights = numpy.zeros((num_minicolumns, num_minicolumns))
     for mi, mj in itertools.product(range(num_minicolumns), repeat=2):
-        slice_i = slice(mi * num_mcu_neurons, (mi + 1) * num_mcu_neurons)
-        slice_j = slice(mj * num_mcu_neurons, (mj + 1) * num_mcu_neurons)
+        slice_i = slice(mi, masked_weights.shape[0], num_minicolumns)
+        slice_j = slice(mj, masked_weights.shape[0], num_minicolumns)
         sub_weights = masked_weights[slice_i, slice_j]
 
         mean_weights[mi, mj] = numpy.ma.mean(sub_weights)
@@ -41,9 +40,9 @@ def display_single_attractor(masked_weights, mi, axis, num_mcu_neurons):
     # Calculate number of minicolumns
     num_minicolumns = masked_weights.shape[0] / num_mcu_neurons
 
-    slice_i = slice(mi * num_mcu_neurons, (mi + 1) * num_mcu_neurons)
+    slice_i = slice(mi, masked_weights.shape[0], num_minicolumns)
 
-    mean_weights = [numpy.ma.mean(masked_weights[slice_i, slice(mj * num_mcu_neurons, (mj + 1) * num_mcu_neurons)])
+    mean_weights = [numpy.ma.mean(masked_weights[slice_i, slice(mj, masked_weights.shape[0], num_minicolumns)])
                     for mj in range(num_minicolumns)]
 
     axis.plot(mean_weights, marker="x")

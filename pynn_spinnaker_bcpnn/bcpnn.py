@@ -295,7 +295,7 @@ class BCPNNSynapse(StandardSynapseType):
 
     # Assuming relatively long row length, at what rate can a SpiNNaker
     # synapse_processor of this type process synaptic events (hZ)
-    max_synaptic_event_rate = 1E6
+    max_synaptic_event_rate = 0.6E6
 
     # BCPNN requires a synaptic matrix region
     # with support for extra per-synapse data

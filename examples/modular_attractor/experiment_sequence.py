@@ -76,7 +76,7 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
             nmda_weight_writer("%s/connection_%u_e_e_nmda_symmetrical.npy" % (folder, i))
 
     # Loop through the HCU results and save data to pickle format
-    for i, (hcu_e_data_writer) in enumerate(hcu_results):
+    for i, (hcu_e_data_writer,) in enumerate(hcu_results):
         hcu_e_data_writer("%s/hcu_%u_e_data.pkl" % (folder, i))
 
     # Once data is read, end simulation
