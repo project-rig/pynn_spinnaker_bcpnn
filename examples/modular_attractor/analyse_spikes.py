@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
     # If i spikes filename was specified
     if args.i_filename is not None:
-        i_filenames = ["%s/hcu_%u_%s.pkl" % (args.folder[0], i, args.i_filename[0]) for i in range(args.num_hcus)]
+        i_filenames = ["%s/hcu_%u_%s.pkl" % (args.folder[0], i, args.i_filename) for i in range(args.num_hcus)]
         i_spikes = combine_i_spikes(i_filenames, 0)
 
         axes[0].set_ylim((0, (NE + NI) * args.num_hcus))
