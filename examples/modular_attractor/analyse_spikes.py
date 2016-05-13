@@ -63,7 +63,8 @@ def load_spikes(filename, segment):
 
 
 def combine_e_spikes(filenames, segment, num_mcu_neurons):
-    num_mcus = (NE * len(filenames)) // num_mcu_neurons
+    num_hcus = len(filenames)
+    num_mcus_per_hcu = NE // num_mcu_neurons
 
     # Loop through filenames
     e_spikes = None
@@ -72,18 +73,16 @@ def combine_e_spikes(filenames, segment, num_mcu_neurons):
         hcu_e_spikes = load_spikes(f, segment)
 
         # Determine which minicolumn each spike originates from [0, num_mcus)
-        hcu_e_minicolumn = numpy.remainder(hcu_e_spikes[:,0], num_mcus)
+        hcu_e_minicolumn = numpy.remainder(hcu_e_spikes[:,0], num_mcus_per_hcu)
 
         # Determine which neuron within the minicolumn each spike originates from [0, num_mcu_neurons)
-        hcu_e_index = numpy.floor(hcu_e_spikes[:,0] / num_mcus)
+        hcu_e_index = numpy.floor(hcu_e_spikes[:,0] / num_mcus_per_hcu)
 
         # Offset index
         hcu_e_index += (i * num_mcu_neurons)
 
         # Interleave neuron IDs so neurons so minicolumns are sequential across HCUs
-        #hcu_e_spikes[:,0] += (i * num_mcu_neurons)
-        #hcu_e_spikes[:,0] += (hcu_e_minicolumn * (num_mcu_neurons * (len(filenames) - 1)))
-        hcu_e_spikes[:,0] = (hcu_e_minicolumn * num_mcu_neurons * len(filenames)) + hcu_e_index
+        hcu_e_spikes[:,0] = (hcu_e_minicolumn * num_mcu_neurons * num_hcus) + hcu_e_index
 
         # Stack HCU's spikes onto networks
         if e_spikes is None:
