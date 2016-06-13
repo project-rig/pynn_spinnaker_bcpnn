@@ -91,7 +91,6 @@ setup(
     keywords="spinnaker pynn neural simulation bcpnn",
 
     # Requirements
-    install_requires=["pynn>=0.8", "rig>=1.1.0, <2.0.0",
-                      "bitarray>=0.8.1, <1.0.0", "pynn_spinnaker>=0.2"],
+    install_requires=["pynn_spinnaker>=0.2"],
     zip_safe=False,  # Partly for performance reasons
 )
