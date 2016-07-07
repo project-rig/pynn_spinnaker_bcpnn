@@ -235,9 +235,22 @@ class BCPNNSynapse(StandardSynapseType):
 
     .. _`Knight, Tully et al (2016)`: http://journal.frontiersin.org/article/10.3389/fnana.2016.00037/full
     """
+    def __init__(self, **parameters):
+        super(BCPNNSynapse, self).__init__(**parameters)
+
+        # **HACK/TELLURIDE** I don't know why this is necessary
+        self.parameter_space["tau_zi"].shape = 1
+        self.parameter_space["tau_zj"].shape = 1
+        self.parameter_space["tau_p"].shape = 1
+        self.parameter_space["f_max"].shape = 1
+        self.parameter_space["w_max"].shape = 1
+        self.parameter_space["weights_enabled"].shape = 1
+        self.parameter_space["plasticity_enabled"].shape = 1
+
     default_parameters = {
         "weight": 0.0,
         "delay": None,
+
         "tau_zi": 5.0,              # Time constant of presynaptic primary trace (ms)
         "tau_zj": 5.0,              # Time constant of postsynaptic primary trace (ms)
         "tau_p": 1000.0,            # Time constant of probability trace (ms)
@@ -256,7 +269,6 @@ class BCPNNSynapse(StandardSynapseType):
     translations = build_translations(
         ("weight",                    "weight"),
         ("delay",                     "delay"),
-        ("dendritic_delay_fraction",  "dendritic_delay_fraction"),
 
         ("tau_zi",                    "tau_zi"),
         ("tau_zj",                    "tau_zj"),
