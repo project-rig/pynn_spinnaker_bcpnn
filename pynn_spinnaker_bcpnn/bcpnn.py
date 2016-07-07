@@ -109,15 +109,18 @@ class IF_curr_exp(IF_curr_exp):
     default_parameters = deepcopy(IF_curr_exp.default_parameters)
     default_parameters.update(intrinsic_plasticity_default_parameters)
 
-    # Set intrinsic plasticity parameter map
-    intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
-
     # Add bias to list of recordables
     recordable = IF_curr_exp.recordable + ["bias"]
 
     # Add units for bias
     units = deepcopy(IF_curr_exp.units)
     units["bias"] = "nA"
+
+    # --------------------------------------------------------------------------
+    # Internal SpiNNaker properties
+    # --------------------------------------------------------------------------
+    # Set intrinsic plasticity parameter map
+    _intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
 
 # ------------------------------------------------------------------------------
 # IF_curr_dual_exp
@@ -131,15 +134,18 @@ class IF_curr_dual_exp(IF_curr_dual_exp):
     default_parameters = deepcopy(IF_curr_dual_exp.default_parameters)
     default_parameters.update(intrinsic_plasticity_default_parameters)
 
-    # Set intrinsic plasticity parameter map
-    intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
-
     # Add bias to list of recordables
     recordable = IF_curr_dual_exp.recordable + ["bias"]
 
     # Add units for bias
     units = deepcopy(IF_curr_dual_exp.units)
     units["bias"] = "nA"
+
+    # --------------------------------------------------------------------------
+    # Internal SpiNNaker properties
+    # --------------------------------------------------------------------------
+    # Set intrinsic plasticity parameter map
+    _intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
 
 # ------------------------------------------------------------------------------
 # IF_curr_ca2_adaptive_dual_exp
@@ -180,26 +186,29 @@ class IF_curr_ca2_adaptive_dual_exp(StandardCellType):
     }
     receptor_types = ("excitatory", "inhibitory", "excitatory2")
 
-    # How many of these neurons per core can
-    # a SpiNNaker neuron processor handle
-    max_neurons_per_core = 512
-
-    neuron_region_class = regions.Neuron
-
-    directly_connectable = False
-
     translations = deepcopy(if_curr_ca2_adaptive_neuron_translations)
     translations.update(dual_exp_synapse_translations)
     translations.update(intrinsic_plasticity_translations)
 
-    neuron_immutable_param_map = if_curr_ca2_adaptive_neuron_immutable_param_map
-    neuron_mutable_param_map = if_curr_ca2_adaptive_neuron_mutable_param_map
+    # --------------------------------------------------------------------------
+    # Internal SpiNNaker properties
+    # --------------------------------------------------------------------------
+    # How many of these neurons per core can
+    # a SpiNNaker neuron processor handle
+    _max_neurons_per_core = 512
 
-    synapse_immutable_param_map = dual_exp_synapse_immutable_param_map
-    synapse_mutable_param_map = dual_exp_synapse_curr_mutable_param_map
+    _neuron_region_class = regions.Neuron
+
+    _directly_connectable = False
+
+    _neuron_immutable_param_map = if_curr_ca2_adaptive_neuron_immutable_param_map
+    _neuron_mutable_param_map = if_curr_ca2_adaptive_neuron_mutable_param_map
+
+    _synapse_immutable_param_map = dual_exp_synapse_immutable_param_map
+    _synapse_mutable_param_map = dual_exp_synapse_curr_mutable_param_map
 
     # Set intrinsic plasticity parameter map
-    intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
+    _intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
 
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
@@ -244,28 +253,37 @@ class BCPNNSynapse(StandardSynapseType):
         "_placeholder3": None,
     }
 
-
     translations = build_translations(
-        ("weight",              "weight"),
-        ("delay",               "delay"),
+        ("weight",                    "weight"),
+        ("delay",                     "delay"),
+        ("dendritic_delay_fraction",  "dendritic_delay_fraction"),
 
-        ("tau_zi",              "tau_zi"),
-        ("tau_zj",              "tau_zj"),
-        ("tau_p",               "tau_p"),
+        ("tau_zi",                    "tau_zi"),
+        ("tau_zj",                    "tau_zj"),
+        ("tau_p",                     "tau_p"),
 
-        ("f_max",               "a_i",              "1000.0 / (f_max * (tau_zi - tau_p))", ""),
-        ("weights_enabled",     "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
-        ("plasticity_enabled",  "a_ij",             "(1000000.0 / (tau_zi + tau_zj)) / ((f_max ** 2) * ((1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))) - tau_p))", ""),
+        ("f_max",                     "a_i",              "1000.0 / (f_max * (tau_zi - tau_p))", ""),
+        ("weights_enabled",           "a_j",              "1000.0 / (f_max * (tau_zj - tau_p))", ""),
+        ("plasticity_enabled",        "a_ij",             "(1000000.0 / (tau_zi + tau_zj)) / ((f_max ** 2) * ((1.0 / ((1.0 / tau_zi) + (1.0 / tau_zj))) - tau_p))", ""),
 
-        ("_placeholder1",       "epsilon",          "1000.0 / (f_max * tau_p)", ""),
-        ("_placeholder2",       "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
+        ("_placeholder1",             "epsilon",          "1000.0 / (f_max * tau_p)", ""),
+        ("_placeholder2",             "epsilon_squared",  "(1000.0 / (f_max * tau_p)) ** 2", ""),
 
-        ("w_max",               "w_max"),
+        ("w_max",                     "w_max"),
 
-        ("_placeholder3",       "mode",             "weights_enabled + (plasticity_enabled * 2)", ""),
+        ("_placeholder3",             "mode",             "weights_enabled + (plasticity_enabled * 2)", ""),
     )
 
-    plasticity_param_map = [
+    def _get_minimum_delay(self):
+        d = state.min_delay
+        if d == "auto":
+            d = state.dt
+        return d
+
+    # --------------------------------------------------------------------------
+    # Internal SpiNNaker properties
+    # --------------------------------------------------------------------------
+    _plasticity_param_map = [
         ("a_i", "i4", s1813),
         ("a_j", "i4", s1813),
         ("a_ij", "i4", s1813),
@@ -286,47 +304,41 @@ class BCPNNSynapse(StandardSynapseType):
         (s213_ln_lut(6), "128i2"),
     ]
 
-    comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "w_max",
+    _comparable_param_names = ("tau_zi", "tau_zj", "tau_p", "f_max", "w_max",
                               "weights_enabled", "plasticity_enabled")
 
     # How many post-synaptic neurons per core can a
     # SpiNNaker synapse_processor of this type handle
-    max_post_neurons_per_core = 256
+    _max_post_neurons_per_core = 256
 
     # Assuming relatively long row length, at what rate can a SpiNNaker
     # synapse_processor of this type process synaptic events (hZ)
-    max_synaptic_event_rate = 0.6E6
+    _max_synaptic_event_rate = 0.6E6
 
     # BCPNN requires a synaptic matrix region
     # with support for extra per-synapse data
-    synaptic_matrix_region_class = regions.ExtendedPlasticSynapticMatrix
+    _synaptic_matrix_region_class = regions.ExtendedPlasticSynapticMatrix
 
     # How many timesteps of delay can DTCM ring-buffer handle
     # **NOTE** only 7 timesteps worth of delay can be handled by
     # 8 element delay buffer - The last element is purely for output
-    max_dtcm_delay_slots = 7
+    _max_dtcm_delay_slots = 7
 
     # Static weights are unsigned
-    signed_weight = True
+    _signed_weight = True
 
     # BCPNN synapses require post-synaptic
     # spikes back-propagated to them
-    requires_back_propagation = True
+    _requires_back_propagation = True
 
     # Presynaptic state consists of a uint32 containing
     # time of last update and an int16 for Zi and Pi
-    pre_state_bytes = 8
+    _pre_state_bytes = 8
 
     # Each synape has an additional 16-bit trace: Pij
-    synapse_trace_bytes = 2
+    _synapse_trace_bytes = 2
 
-    def _get_minimum_delay(self):
-        d = state.min_delay
-        if d == "auto":
-            d = state.dt
-        return d
-
-    def update_weight_range(self, weight_range):
+    def _update_weight_range(self, weight_range):
         # If plasticity is enabled, maximum weight can be calculated with
         #             Pij
         # w_max * ln(-----)
