@@ -2,6 +2,7 @@ import csv
 import itertools
 import logging
 import numpy as np
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
 # Import simulator
@@ -37,8 +38,7 @@ MIN_FREQUENCY = 0.001
 # Training parameters
 #-------------------------------------------------------------------
 # Experiment configuration
-TRAINING_TIME = 20 * 1000
-TRAINING_STIMULUS_TIME = 100
+STIMULUS_TIME = 100
 
 BCPNN_TAU_PRIMARY = 10.0       # ms
 BCPNN_TAU_ELIGIBILITY = 2000.0 # ms
@@ -47,13 +47,11 @@ BCPNN_PHI = 0.045                # nA
 # Maximum weight multiplied by Wij value calculated by BCPNN rule
 BCPNN_MAX_WEIGHT = 0.012       # uS for conductance
 
+TRAIN = False
+
 #-------------------------------------------------------------------
 # Testing parameters
 #-------------------------------------------------------------------
-TESTING_STIMULUS_TIME = 5000
-TESTING_TIME = 4 * TESTING_STIMULUS_TIME
-
-
 cell_params = {
     'cm'        : 0.25, # nF
     'tau_m'     : 20.0,
@@ -71,7 +69,7 @@ def poisson_generator(rate, t_start, t_stop):
     n = (t_stop - t_start) / 1000.0 * rate
     number = np.ceil(n + 3 * np.sqrt(n))
     if number < 100:
-        number = min(5 + numpy.ceil(2 * n),100)
+        number = min(5 + np.ceil(2 * n),100)
 
     if number > 0:
         isi = np.random.exponential(1.0/rate, number)*1000.0
@@ -146,9 +144,9 @@ def generate_stimuli_spike_times(stimuli_rates, stimuli_duration, population_siz
         population_spike_times.append(neuron_spike_times)
     return population_spike_times
 
-def create_input_population(size, name, record, sim):
+def create_input_population(size, record, sim):
     # Population parameters
-    p = sim.Population(size, sim.IF_curr_exp(**cell_params), label=name)
+    p = sim.Population(size, sim.IF_curr_exp(**cell_params))
     if record:
         # **YUCK** record spikes actually entirely ignores
         # sampling interval but throws exception if it is not set
@@ -156,14 +154,14 @@ def create_input_population(size, name, record, sim):
 
     return p
 
-def create_class_population(size, name, record, ioffset, train, sim):
+def create_class_population(size, record, ioffset, train, sim):
     params = deepcopy(cell_params)
     params["bias_enabled"] = False
     params["plasticity_enabled"] = train
     params["i_offset"] = ioffset
 
     # Population parameters
-    p = sim.Population(size, bcpnn.IF_curr_exp(**params), label=name)
+    p = sim.Population(size, bcpnn.IF_curr_exp(**params))
     if record:
         # **YUCK** record spikes actually entirely ignores
         # sampling interval but throws exception if it is not set
@@ -174,6 +172,13 @@ def create_class_population(size, name, record, ioffset, train, sim):
 
     return p
 
+def calculate_spike_rate(segment, rate_bins, population_size):
+    population_histogram = np.zeros(len(rate_bins) - 1)
+    for spiketrain in segment.spiketrains:
+        population_histogram += np.histogram(spiketrain, bins=rate_bins)[0]
+
+    return population_histogram * (1000.0 / 500.0) * (1.0 / float(population_size))
+
 #-------------------------------------------------------------------
 # Build basic classifier network
 #-------------------------------------------------------------------
@@ -181,13 +186,17 @@ def build_basic_network(input_stimuli_rates, input_stimuli_duration,
                         class_stimuli_rates, class_stimuli_duration,
                         record, ioffset, train, sim):
     # Create main input and class populations
-    input_populations = [create_input_population(CLASS_POP_SIZE, i, record, sim) for i in INPUT_NAMES]
+    input_populations = [create_input_population(CLASS_POP_SIZE, record, sim)
+                         for _ in input_stimuli_rates]
 
-    if isinstance(ioffset, list):
-        class_populations = [create_class_population(CLASS_POP_SIZE, c, record, o, train, sim) for i, (o, c) in enumerate(zip(ioffset, CLASS_NAMES))]
+    if isinstance(ioffset, list) or isinstance(ioffset, np.ndarray):
+        assert len(ioffset) == len(class_stimuli_rates)
+        class_populations = [create_class_population(CLASS_POP_SIZE, record, o, train, sim)
+                             for i, o in enumerate(ioffset)]
     else:
         print ioffset
-        class_populations = [create_class_population(CLASS_POP_SIZE, c, record, ioffset, train, sim) for c in CLASS_NAMES]
+        class_populations = [create_class_population(CLASS_POP_SIZE, record, ioffset, train, sim)
+                             for _ in class_stimuli_rates]
 
     # Create pre-synaptic stimuli populations
     pre_stimuli_connector = sim.OneToOneConnector()
@@ -250,7 +259,7 @@ def plot_response(mean_sd, axis, title):
     for unit_mean in mean_sd[3]:
         axis.plot(param_range, calc_response(param_range, unit_mean, mean_sd[2]))
 
-def calculate_rates(param_values, unit_means, stimuli_rates, f_max):
+def calculate_stim_rates(param_values, unit_means, stimuli_rates, f_max):
     # Loop through units representing parameter
     for unit_mean in unit_means[3]:
         # Calculate rate for each parameter value in training data
@@ -258,6 +267,124 @@ def calculate_rates(param_values, unit_means, stimuli_rates, f_max):
                             for value in param_values]
         # Add list of rates to list
         stimuli_rates.append(input_stimuli)
+
+def train(sepal_length, sepal_length_unit_mean_sd,
+          sepal_width, sepal_width_unit_mean_sd,
+          petal_length, petal_length_unit_mean_sd,
+          petal_width, petal_width_unit_mean_sd,
+          unique_species, species):
+    # SpiNNaker setup
+    sim.setup(timestep=1.0, min_delay=1.0, max_delay=10.0,
+            spinnaker_hostname="192.168.1.1")
+
+    # Calculate input rates
+    input_rates = []
+    calculate_stim_rates(sepal_length, sepal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(sepal_width, sepal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(petal_length, petal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(petal_width, petal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
+
+    # Calculate class rates
+    class_rates = []
+    for u, _ in enumerate(unique_species):
+        class_rates.append(list((species == u) * MAX_FREQUENCY))
+
+    # Build basic network with orthogonal stimulation of both populations
+    input_populations, class_populations = build_basic_network(input_rates, STIMULUS_TIME,
+                                                               class_rates, STIMULUS_TIME,
+                                                               False, 0.0, True, sim)
+    # Create BCPNN model with weights disabled
+    bcpnn_synapse = bcpnn.BCPNNSynapse(
+            tau_zi=BCPNN_TAU_PRIMARY,
+            tau_zj=BCPNN_TAU_PRIMARY,
+            tau_p=BCPNN_TAU_ELIGIBILITY,
+            f_max=MAX_FREQUENCY,
+            w_max=BCPNN_MAX_WEIGHT,
+            weights_enabled=False,
+            plasticity_enabled=True,
+            weight=0.0)
+
+    # Create all-to-all connector to connect inputs to classes
+    input_class_connector = sim.AllToAllConnector()
+
+    # Loop through all pairs of input populations and classes
+    plastic_connections = []
+    for (i, c) in itertools.product(input_populations, class_populations):
+        # Connect input to class with all-to-all plastic synapse
+        connection = sim.Projection(i, c, input_class_connector, bcpnn_synapse,
+                                    receptor_type="excitatory", label="%s-%s" % (i.label, c.label))
+        plastic_connections.append(connection)
+
+    # Run simulation
+    sim.run(STIMULUS_TIME * len(sepal_length))
+
+    # Read biases
+    # **HACK** investigate where out by 1000 comes from!
+    learnt_biases = [c.get_data().segments[0].filter(name="bias")[0][-1,:] * 0.001
+                    for c in class_populations]
+
+    # Read plastic weights
+    learnt_weights = [p.get("weight", format="array") for p in plastic_connections]
+
+    return learnt_biases, learnt_weights
+
+def test(sepal_length, sepal_length_unit_mean_sd,
+         sepal_width, sepal_width_unit_mean_sd,
+         petal_length, petal_length_unit_mean_sd,
+         petal_width, petal_width_unit_mean_sd,
+         num_species,
+         learnt_biases, learnt_weights):
+    # SpiNNaker setup
+    sim.setup(timestep=1.0, min_delay=1.0, max_delay=10.0,
+              spinnaker_hostname="192.168.1.1")
+
+    # Calculate input rates
+    input_rates = []
+    calculate_stim_rates(sepal_length, sepal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(sepal_width, sepal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(petal_length, petal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
+    calculate_stim_rates(petal_width, petal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
+
+    # Generate uncertain class pattern
+    uncertain_class_rates = [[MAX_FREQUENCY * (1.0 / num_species)]
+                             for s in range(num_species)]
+
+    # Build basic network
+    testing_time = STIMULUS_TIME * len(sepal_length)
+    input_populations, class_populations = build_basic_network(input_rates, STIMULUS_TIME,
+                                                               uncertain_class_rates, testing_time,
+                                                               True, learnt_biases, False, sim)
+
+    # Create BCPNN model with weights disabled
+    bcpnn_synapse = bcpnn.BCPNNSynapse(
+            tau_zi=BCPNN_TAU_PRIMARY,
+            tau_zj=BCPNN_TAU_PRIMARY,
+            tau_p=BCPNN_TAU_ELIGIBILITY,
+            f_max=MAX_FREQUENCY,
+            w_max=BCPNN_MAX_WEIGHT,
+            weights_enabled=True,
+            plasticity_enabled=False)
+
+    for ((i, c), w) in zip(itertools.product(input_populations, class_populations), learnt_weights):
+        # Convert learnt weight matrix into a connection list
+        connections = convert_weights_to_list(w, 1.0, 7.0)
+
+        # Create projections
+        sim.Projection(i, c, sim.FromListConnector(connections), bcpnn_synapse,
+                       receptor_type="excitatory", label="%s-%s" % (i.label, c.label))
+
+    # Run simulation
+    sim.run(testing_time)
+
+    # Read spikes from input and class populations
+    input_data = [i.get_data() for i in input_populations]
+    class_data = [c.get_data() for c in class_populations]
+
+    # End simulation on SpiNNaker
+    sim.end()
+
+    # Return spikes
+    return input_data, class_data
 
 #-------------------------------------------------------------------
 # Entry point
@@ -275,77 +402,93 @@ with open("iris.csv", "rb") as csv_file:
 
     # Find unique species and hence index each species
     unique_species = list(set(columns[4]))
-    species = np.asarray([unique_species.index(s) for s in columns[4]], dtype=int)
+    species = np.asarray([unique_species.index(s)
+                          for s in columns[4]], dtype=int)
 
-    # Get min and max param values
-    print("Sepal length")
-    sepal_length_unit_mean_sd = calc_unit_mean_sd(sepal_length, 11)
+# Get min and max param values
+print("Sepal length")
+sepal_length_unit_mean_sd = calc_unit_mean_sd(sepal_length, 11)
 
-    print("Sepal width")
-    sepal_width_unit_mean_sd = calc_unit_mean_sd(sepal_width, 11)
+print("Sepal width")
+sepal_width_unit_mean_sd = calc_unit_mean_sd(sepal_width, 11)
 
-    print("Petal length")
-    petal_length_unit_mean_sd = calc_unit_mean_sd(petal_length, 11)
+print("Petal length")
+petal_length_unit_mean_sd = calc_unit_mean_sd(petal_length, 11)
 
-    print("Petal width")
-    petal_width_unit_mean_sd = calc_unit_mean_sd(petal_width, 11)
+print("Petal width")
+petal_width_unit_mean_sd = calc_unit_mean_sd(petal_width, 11)
 
-    # Plot minicolumn responses
-    figure, axes = plt.subplots(4)
-    plot_response(sepal_length_unit_mean_sd, axes[0], "Sepal length")
-    plot_response(sepal_width_unit_mean_sd, axes[1], "Sepal width")
-    plot_response(petal_length_unit_mean_sd, axes[2], "Petal length")
-    plot_response(petal_width_unit_mean_sd, axes[3], "Petal width")
-    plt.show()
+# Plot minicolumn responses
+figure, axes = plt.subplots(4)
+plot_response(sepal_length_unit_mean_sd, axes[0], "Sepal length")
+plot_response(sepal_width_unit_mean_sd, axes[1], "Sepal width")
+plot_response(petal_length_unit_mean_sd, axes[2], "Petal length")
+plot_response(petal_width_unit_mean_sd, axes[3], "Petal width")
+plt.show()
 
-    # Split data into training and test
-    permute_indices = np.random.permutation(num_samples)
-    num_training = int(0.8 * num_samples)
-    training_indices = permute_indices[:num_training]
-    testing_indices = permute_indices[num_training:]
+# Split data into training and test
+np.random.seed(0x12345678)
+permute_indices = np.random.permutation(num_samples)
+num_training = int(0.8 * num_samples)
+training_indices = permute_indices[:num_training]
+testing_indices = permute_indices[num_training:]
 
-    # Calculate input rates
-    input_rates = []
-    calculate_rates(sepal_length[training_indices], sepal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
-    calculate_rates(sepal_width[training_indices], sepal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
-    calculate_rates(petal_length[training_indices], petal_length_unit_mean_sd, input_rates, MAX_FREQUENCY)
-    calculate_rates(petal_width[training_indices], petal_width_unit_mean_sd, input_rates, MAX_FREQUENCY)
+if TRAIN:
+    # Train
+    learnt_biases, learnt_weights = train(sepal_length[training_indices], sepal_length_unit_mean_sd,
+                                          sepal_width[training_indices], sepal_width_unit_mean_sd,
+                                          petal_length[training_indices], petal_length_unit_mean_sd,
+                                          petal_width[training_indices], petal_width_unit_mean_sd,
+                                          unique_species, species[training_indices])
 
-    # Calculate class rates
-    class_rates = []
-    for u, _ in enumerate(unique_species):
-        class_rates.append(list((species[training_indices] == u) * MAX_FREQUENCY))
+    # Save trained data
+    np.save("learnt_weights.npy", learnt_weights)
+    np.save("learnt_biases.npy", learnt_biases)
+else:
+    learnt_weights = np.load("learnt_weights.npy")
+    learnt_biases = np.load("learnt_biases.npy")
 
-    # SpiNNaker setup
-    sim.setup(timestep=1.0, min_delay=1.0, max_delay=10.0, spinnaker_hostname="192.168.1.1")
+# Test
+input_data, class_data = test(sepal_length[testing_indices], sepal_length_unit_mean_sd,
+                              sepal_width[testing_indices], sepal_width_unit_mean_sd,
+                              petal_length[testing_indices], petal_length_unit_mean_sd,
+                              petal_width[testing_indices], petal_width_unit_mean_sd,
+                              len(unique_species),
+                              learnt_biases, learnt_weights)
 
-    # Build basic network with orthogonal stimulation of both populations
-    input_populations, class_populations = build_basic_network(input_rates, TRAINING_STIMULUS_TIME,
-                                                               class_rates, TRAINING_STIMULUS_TIME,
-                                                               False, 0.0, True, sim)
+figure, axes = plt.subplots(len(unique_species), sharex=True)
 
+# Calculate rates for each class for each stimulus
+rate_bins = np.arange(0, (STIMULUS_TIME * len(testing_indices)) + 1, STIMULUS_TIME)
+rates = np.vstack([calculate_spike_rate(d.segments[0], rate_bins, CLASS_POP_SIZE)
+                   for d in class_data])
 
-    # Create BCPNN model with weights disabled
-    bcpnn_synapse = bcpnn.BCPNNSynapse(
-            tau_zi=BCPNN_TAU_PRIMARY,
-            tau_zj=BCPNN_TAU_PRIMARY,
-            tau_p=BCPNN_TAU_ELIGIBILITY,
-            f_max=MAX_FREQUENCY,
-            w_max=BCPNN_MAX_WEIGHT,
-            weights_enabled=False,
-            plasticity_enabled=True,
-            weight=0.0)
+# Calculate largest rate in each bin
+winner = np.argmax(rates, axis=0)
 
-    # Create all-to-all conector to connect inputs to classes
-    input_class_connector = sim.AllToAllConnector()
+# Determine whether winner is correct in each bin
+correct = (winner == species[testing_indices])
 
-    # Loop through all pairs of input populations and classes
-    plastic_connections = []
-    for (i, c) in itertools.product(input_populations, class_populations):
-        # Connect input to class with all-to-all plastic synapse
-        connection = sim.Projection(i, c, input_class_connector, bcpnn_synapse,
-                                    receptor_type="excitatory", label="%s-%s" % (i.label, c.label))
-        plastic_connections.append(connection)
+# Loop through rows of rates, axis and the name of the species they represent
+minor_ticks = np.arange(0, STIMULUS_TIME * len(testing_indices), STIMULUS_TIME)
+major_ticks = np.arange(0, STIMULUS_TIME * len(testing_indices), 500)
+colours = ["gray", "red", "gray", "green"]
+for i, (r, n, a) in enumerate(zip(rates, unique_species, axes)):
+    bar_colour = [colours[i] for i in (winner == i) + (correct * 2)]
+    a.bar(rate_bins[:-1], r, STIMULUS_TIME, color=bar_colour)
 
-    # Run simulation
-    sim.run(TRAINING_TIME)
+    # Mark certainty on axis and make all axis limits match
+    a.axhline(MAX_FREQUENCY, color="grey", linestyle="--")
+    a.set_ylim((0, MAX_FREQUENCY * 1.5))
+
+    # Show class name as axis title
+    a.set_title(n)
+
+# Build legend
+figure.legend([mpatches.Patch(color="red"), mpatches.Patch(color="green")],
+              ["Incorrect classification", "Correct classification"])
+
+# Calculate accuracy
+print "Accuracy = %f%%" % (100.0 * (float(np.sum(correct)) / float(len(correct))))
+
+plt.show()
