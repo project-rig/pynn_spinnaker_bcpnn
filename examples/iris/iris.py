@@ -38,7 +38,7 @@ MIN_FREQUENCY = 0.001
 # Training parameters
 #-------------------------------------------------------------------
 # Experiment configuration
-STIMULUS_TIME = 100
+STIMULUS_TIME = 75.0
 
 BCPNN_TAU_PRIMARY = 10.0       # ms
 BCPNN_TAU_ELIGIBILITY = 2000.0 # ms
@@ -47,7 +47,7 @@ BCPNN_PHI = 0.045                # nA
 # Maximum weight multiplied by Wij value calculated by BCPNN rule
 BCPNN_MAX_WEIGHT = 0.012       # uS for conductance
 
-TRAIN = False
+TRAIN = True
 
 #-------------------------------------------------------------------
 # Testing parameters
