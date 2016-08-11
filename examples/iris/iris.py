@@ -427,6 +427,7 @@ plot_response(petal_width_unit_mean_sd, axes[3], "Petal width")
 plt.show()
 
 # Split data into training and test
+# **YUCK** use fixed seed so split is the same after reloading
 np.random.seed(0x12345678)
 permute_indices = np.random.permutation(num_samples)
 num_training = int(0.8 * num_samples)
@@ -470,25 +471,31 @@ winner = np.argmax(rates, axis=0)
 correct = (winner == species[testing_indices])
 
 # Loop through rows of rates, axis and the name of the species they represent
-minor_ticks = np.arange(0, STIMULUS_TIME * len(testing_indices), STIMULUS_TIME)
-major_ticks = np.arange(0, STIMULUS_TIME * len(testing_indices), 500)
 colours = ["gray", "red", "gray", "green"]
 for i, (r, n, a) in enumerate(zip(rates, unique_species, axes)):
-    bar_colour = [colours[i] for i in (winner == i) + (correct * 2)]
+    # Lookup bar colour based on whether this class is
+    # the winner and whether that is correct
+    bar_colour = [colours[i]
+                  for i in (winner == i) + (correct * 2)]
+
+    # Plot bar showing rate
     a.bar(rate_bins[:-1], r, STIMULUS_TIME, color=bar_colour)
 
-    # Mark certainty on axis and make all axis limits match
+    # Mark certainty on axis, make all axis limits match and label axis
     a.axhline(MAX_FREQUENCY, color="grey", linestyle="--")
     a.set_ylim((0, MAX_FREQUENCY * 1.5))
+    a.set_ylabel("Firing rate [Hz]")
 
     # Show class name as axis title
     a.set_title(n)
+
+axes[-1].set_xlabel("Time [ms]")
 
 # Build legend
 figure.legend([mpatches.Patch(color="red"), mpatches.Patch(color="green")],
               ["Incorrect classification", "Correct classification"])
 
-# Calculate accuracy
-print "Accuracy = %f%%" % (100.0 * (float(np.sum(correct)) / float(len(correct))))
+# Calculate classification accuracy
+print "Classification accuracy = %f%%" % (100.0 * (float(np.sum(correct)) / float(len(correct))))
 
 plt.show()
