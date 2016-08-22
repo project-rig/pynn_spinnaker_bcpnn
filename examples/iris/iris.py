@@ -498,7 +498,6 @@ print "Classification accuracy = %f%%" % (100.0 * (float(np.sum(correct)) / floa
 confusion = np.zeros((len(unique_species), len(unique_species)))
 for predicted, correct in zip(winner, species[testing_indices]):
     confusion[predicted, correct] += 1.0
-confusion /= np.sum(confusion)
 
 confusion_figure, confusion_axis = plt.subplots()
 
