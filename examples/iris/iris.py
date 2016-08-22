@@ -18,10 +18,6 @@ logger.addHandler(logging.StreamHandler())
 #-------------------------------------------------------------------
 # General Parameters
 #-------------------------------------------------------------------
-# Network dimensions
-INPUT_NAMES = ["X", "Y"]
-CLASS_NAMES = ["X'", "Y'"]
-
 CLASS_POP_SIZE = 30
 
 WEIGHT_GAIN = 6.0
@@ -367,7 +363,7 @@ def test(sepal_length, sepal_length_unit_mean_sd,
 
     for ((i, c), w) in zip(itertools.product(input_populations, class_populations), learnt_weights):
         # Convert learnt weight matrix into a connection list
-        connections = convert_weights_to_list(w, 1.0, 7.0)
+        connections = convert_weights_to_list(w, 1.0, 7.0 * (30.0 / float(CLASS_POP_SIZE)))
 
         # Create projections
         sim.Projection(i, c, sim.FromListConnector(connections), bcpnn_synapse,
@@ -457,7 +453,7 @@ input_data, class_data = test(sepal_length[testing_indices], sepal_length_unit_m
                               len(unique_species),
                               learnt_biases, learnt_weights)
 
-figure, axes = plt.subplots(len(unique_species), sharex=True)
+rate_figure, rate_axes = plt.subplots(len(unique_species), sharex=True)
 
 # Calculate rates for each class for each stimulus
 rate_bins = np.arange(0, (STIMULUS_TIME * len(testing_indices)) + 1, STIMULUS_TIME)
@@ -472,7 +468,7 @@ correct = (winner == species[testing_indices])
 
 # Loop through rows of rates, axis and the name of the species they represent
 colours = ["gray", "red", "gray", "green"]
-for i, (r, n, a) in enumerate(zip(rates, unique_species, axes)):
+for i, (r, n, a) in enumerate(zip(rates, unique_species, rate_axes)):
     # Lookup bar colour based on whether this class is
     # the winner and whether that is correct
     bar_colour = [colours[i]
@@ -489,13 +485,36 @@ for i, (r, n, a) in enumerate(zip(rates, unique_species, axes)):
     # Show class name as axis title
     a.set_title(n)
 
-axes[-1].set_xlabel("Time [ms]")
+rate_axes[-1].set_xlabel("Time [ms]")
 
 # Build legend
-figure.legend([mpatches.Patch(color="red"), mpatches.Patch(color="green")],
+rate_figure.legend([mpatches.Patch(color="red"), mpatches.Patch(color="green")],
               ["Incorrect classification", "Correct classification"])
 
 # Calculate classification accuracy
 print "Classification accuracy = %f%%" % (100.0 * (float(np.sum(correct)) / float(len(correct))))
+
+# Create confusion matrix
+confusion = np.zeros((len(unique_species), len(unique_species)))
+for predicted, correct in zip(winner, species[testing_indices]):
+    confusion[predicted, correct] += 1.0
+confusion /= np.sum(confusion)
+
+confusion_figure, confusion_axis = plt.subplots()
+
+# Plot confusion matrix
+confusion_image = confusion_axis.imshow(confusion, interpolation="none")
+confusion_figure.colorbar(confusion_image, ax=confusion_axis)
+confusion_axis.set_xlabel("Predicted class")
+confusion_axis.set_ylabel("Actual class")
+
+# Show tick for each species
+confusion_axis.set_xticks(range(len(unique_species)))
+confusion_axis.set_yticks(range(len(unique_species)))
+confusion_axis.set_xticklabels(unique_species)
+confusion_axis.set_yticklabels(unique_species)
+
+# Turn off grid
+confusion_axis.grid(False)
 
 plt.show()
