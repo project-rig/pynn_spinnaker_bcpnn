@@ -443,7 +443,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
                    delay_model, num_hcu, num_mcu_neurons, **setup_kwargs):
     # Setup simulator and seed RNG
     sim.setup(timestep=dt, min_delay=dt, max_delay=7.0 * dt, **setup_kwargs)
-    rng = NumpyRNG(seed=1)
+    rng = sim.NativeRNG(host_rng=NumpyRNG(seed=1))
 
     # Determine length of each epoch
     epoch_duration = training_stim_time + training_interval_time
@@ -522,7 +522,7 @@ def test_discrete(connection_weight_filenames, hcu_biases,
 
     # Setup simulator and seed RNG
     sim.setup(timestep=dt, min_delay=dt, max_delay=7.0 * dt, **setup_kwargs)
-    rng = NumpyRNG(seed=1)
+    rng = sim.NativeRNG(host_rng=NumpyRNG(seed=1))
 
     # Calculate mean firing rate
     e_cell_mean_firing_rate = (num_mcu_neurons / NE) * 20.0
