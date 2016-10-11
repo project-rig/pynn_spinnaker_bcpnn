@@ -232,7 +232,7 @@ public:
     return 4 + PreTraceWords + GetNumPlasticWords(rowSynapses) + GetNumControlWords(rowSynapses);
   }
 
-  bool ReadSDRAMData(uint32_t *region, uint32_t)
+  bool ReadSDRAMData(uint32_t *region, uint32_t, uint32_t)
   {
     LOG_PRINT(LOG_LEVEL_INFO, "BCPNN::BCPNNSynapse::ReadSDRAMData");
 

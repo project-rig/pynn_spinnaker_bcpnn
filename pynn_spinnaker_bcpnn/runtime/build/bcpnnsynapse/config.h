@@ -7,11 +7,10 @@ namespace SynapseProcessor
   typedef Common::SpikeInputBufferBase<1024> SpikeInputBuffer;
 }
 
-// Synapse processor includes
-#include "synapse_processor/key_lookup_binary_search.h"
+#include "common/key_lookup_binary_search.h"
 namespace SynapseProcessor
 {
-  typedef KeyLookupBinarySearch<10> KeyLookup;
+  typedef Common::KeyLookupBinarySearch<10> KeyLookup;
 }
 
 // BCPNN synapses using 16-bit control words with 3 delay bits and 10 index bits;

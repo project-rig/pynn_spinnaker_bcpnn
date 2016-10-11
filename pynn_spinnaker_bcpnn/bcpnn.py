@@ -303,7 +303,7 @@ class BCPNNSynapse(StandardSynapseType):
         ("epsilon", "i4", s1813),
         ("epsilon_squared", "i4", s1813),
 
-        ("w_max", "i4", lazy_param_map.s32_weight_fixed_point),
+        ("w_max", "i4", lazy_param_map.s32_fixed_point),
 
         ("mode", "u4", lazy_param_map.integer),
 
