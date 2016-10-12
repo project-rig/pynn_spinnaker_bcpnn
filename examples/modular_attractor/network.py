@@ -67,7 +67,7 @@ fudge = 0.00041363506632638 * 250.0 # ensures dV = J at V=0
 # Fixed excitatory and inhibitory weights
 JE = (J_eff / tau_syn_ampa_gaba) * fudge
 JI = -g * JE
-logger = logging.getLogger()
+logger = logging.getLogger("pynn_spinnaker")
 
 # threshold, external, and Poisson generator rates:
 nu_thresh = (theta - U0) / (J_eff * CE * tauMem)
@@ -440,7 +440,7 @@ class HCUConnection(object):
 #------------------------------------------------------------------------------
 def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
                    minicolumn_indices, training_stim_time, training_interval_time,
-                   delay_model, num_hcu, num_mcu_neurons, **setup_kwargs):
+                   delay_model, num_hcu, num_mcu_neurons, timer, **setup_kwargs):
     # Setup simulator and seed RNG
     sim.setup(timestep=dt, min_delay=dt, max_delay=7.0 * dt, **setup_kwargs)
     rng = sim.NativeRNG(host_rng=NumpyRNG(seed=1))
@@ -498,8 +498,12 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
             sim=sim, pre_hcu=hcu_pre, post_hcu=hcu_post,
             ampa_synapse=ampa_synapse, nmda_synapse=nmda_synapse, rng=rng))
 
+    logger.info("Build time %gs", timer.diff())
+
     # Run simulation
     sim.run(training_duration)
+
+    logger.info("Load and run time %gs", timer.diff())
 
     # Read results from HCUs
     hcu_results = [hcu.read_results() for hcu in hcus]
@@ -515,7 +519,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
 def test_discrete(connection_weight_filenames, hcu_biases,
                   ampa_gain, nmda_gain, tau_ca2, i_alpha,
                   stim_minicolumns, testing_simtime, delay_model,
-                  num_hcu, num_mcu_neurons, record_membrane, **setup_kwargs):
+                  num_hcu, num_mcu_neurons, record_membrane, timer, **setup_kwargs):
 
     assert len(hcu_biases) == num_hcu, "An array of biases must be provided for each HCU"
     assert len(connection_weight_filenames) == (num_hcu ** 2), "A tuple of weight matrix filenames must be provided for each HCU->HCU product"
@@ -559,9 +563,13 @@ def test_discrete(connection_weight_filenames, hcu_biases,
             ampa_synapse=bcpnn_synapse, nmda_synapse=bcpnn_synapse,
             connection_weight_filename=connection_weight_filename, delay=hcu_delay)
 
+    logger.info("Build time %gs", timer.diff())
+
     # Run simulation
     sim.run(testing_simtime)
 
+    logger.info("Load and run time %gs", timer.diff())
+    
     # Read results from HCUs
     results = [hcu.read_results() for hcu in hcus]
 

@@ -9,6 +9,8 @@ import sys
 
 import network
 
+from pyNN.utility import Timer
+
 # Set PyNN spinnaker log level
 logger = logging.getLogger("pynn_spinnaker")
 logger.setLevel(logging.INFO)
@@ -20,15 +22,18 @@ class Mode(enum.Enum):
     test_asymmetrical  = 3
     test_symmetrical   = 4
 
-mode = Mode.test_asymmetrical
+mode = Mode.train_asymmetrical
 
-hcu_grid_size = 1
+hcu_grid_size = 2
 num_hcu = hcu_grid_size ** 2
 num_mcu_neurons = 100
 
-record_membrane = True
+record_membrane = False
 
-spinnaker_kwargs = {"spalloc_num_boards": 1,
+timer = Timer()
+timer.start()
+
+spinnaker_kwargs = {"spinnaker_hostname": "192.168.1.1",
                     "stop_on_spinnaker": True}
 
 tau_p = 2000
@@ -62,7 +67,7 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
     hcu_results, connection_results, end_simulation = network.train_discrete(network.tau_syn_ampa_gaba, network.tau_syn_ampa_gaba,
                                                                              network.tau_syn_nmda, nmda_tau_zj, tau_p,
                                                                              minicolumn_indices, training_stim_time, training_interval_time,
-                                                                             delay_model, num_hcu, num_mcu_neurons, **spinnaker_kwargs)
+                                                                             delay_model, num_hcu, num_mcu_neurons, timer, **spinnaker_kwargs)
 
     # Save weights for all connections
     for i, (ampa_weight_writer, nmda_weight_writer) in enumerate(connection_results):
@@ -78,6 +83,8 @@ if mode == Mode.train_asymmetrical or mode == Mode.train_symmetrical:
     # Loop through the HCU results and save data to pickle format
     for i, (hcu_e_data_writer,) in enumerate(hcu_results):
         hcu_e_data_writer("%s/hcu_%u_e_data.pkl" % (folder, i))
+
+    logger.info("Download time %gs", timer.diff())
 
     # Once data is read, end simulation
     end_simulation()
@@ -133,7 +140,7 @@ else:
     hcu_results, end_simulation = network.test_discrete(connection_weights, hcu_biases,
                                                         gain, gain / ampa_nmda_ratio, tau_ca2, i_alpha,
                                                         stim_minicolumns, testing_simtime, delay_model,
-                                                        num_hcu, num_mcu_neurons, record_membrane,
+                                                        num_hcu, num_mcu_neurons, record_membrane, timer,
                                                         **spinnaker_kwargs)
 
     # Build correct filename format string for data
@@ -149,5 +156,7 @@ else:
         hcu_e_data_writer(e_filename_format % (folder, i))
         hcu_i_data_writer(i_filename_format % (folder, i))
 
+    logger.info("Download time %gs", timer.diff())
+    
     # Once data is read, end simulation
     end_simulation()
