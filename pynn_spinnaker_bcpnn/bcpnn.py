@@ -323,9 +323,8 @@ class BCPNNSynapse(StandardSynapseType):
     # SpiNNaker synapse_processor of this type handle
     _max_post_neurons_per_core = 256
 
-    # Assuming relatively long row length, at what rate can a SpiNNaker
-    # synapse_processor of this type process synaptic events (hZ)
-    _max_synaptic_event_rate = 0.6E6
+    # How many CPU cycles are spent doing non-row processing things
+    _constant_cpu_overhead = 11.15E6
 
     # BCPNN requires a synaptic matrix region
     # with support for extra per-synapse data
@@ -370,3 +369,14 @@ class BCPNNSynapse(StandardSynapseType):
             # Calculate epsilon and hence maximum weight
             epsilon = 1000.0 / (f_max * tau_p)
             weight_range.update(w_max * math.log(1.0 / (epsilon ** 2)))
+
+    # How many CPU cycles does it take to process a row
+    def _get_row_cpu_cost(self, row_length, pre_rate, post_rate, **kwargs):
+        # How many CPU cycles does it take to fetch a row
+        # and initialize the synapse processing loop
+        constant_cost = 1143 + 248
+
+        # How many CPU cycles does it take to process a synapse
+        synapse_cost = 207 + (49 * (float(post_rate) / float(pre_rate)))
+
+        return constant_cost + (synapse_cost * row_length)
