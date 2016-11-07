@@ -208,13 +208,6 @@ class HCU(object):
         # Set e cell mean firing rate
         self.e_cells.spinnaker_config.mean_firing_rate = e_cell_mean_firing_rate
 
-        # **HACK** issue #28 means plastic version needs clustering hack
-        self.e_cells.spinnaker_config.max_neurons_per_core = 256
-
-        # **HACK** issue #18 means that we end up with 1024 wide clusters
-        # which needs a lot of 256-wide neuron and synapse cores
-        self.e_cells.spinnaker_config.max_cluster_width = 512
-
         # Set flush time
         self.e_cells.spinnaker_config.flush_time = e_cell_flush_time
 
@@ -456,7 +449,7 @@ def train_discrete(ampa_tau_zi, ampa_tau_zj, nmda_tau_zi, nmda_tau_zj, tau_p,
     training_duration = float(len(stim_minicolumns)) * epoch_duration
 
     # Calculate mean firing rate
-    e_cell_mean_firing_rate = (num_mcu_neurons / NE) * 20.0
+    e_cell_mean_firing_rate = (float(num_mcu_neurons) / float(NE)) * 20.0
 
     # Build HCUs configured for training
     hcus = [HCU.training(name="%u" % h, sim=sim, rng=rng, simtime=training_duration,
@@ -529,7 +522,7 @@ def test_discrete(connection_weight_filenames, hcu_biases,
     rng = sim.NativeRNG(host_rng=NumpyRNG(seed=1))
 
     # Calculate mean firing rate
-    e_cell_mean_firing_rate = (num_mcu_neurons / NE) * 20.0
+    e_cell_mean_firing_rate = (float(num_mcu_neurons) / float(NE)) * 20.0
 
     # Build HCUs configured for testing
     hcus = [HCU.testing_adaptive(name="%u" % i, sim=sim, rng=rng,
