@@ -18,6 +18,7 @@ from copy import deepcopy
 from functools import partial
 from pyNN.standardmodels import build_translations
 from pynn_spinnaker.spinnaker.utils import get_homogeneous_param
+from pynn_spinnaker.standardmodels.cells import calc_max_neurons_per_core
 
 # Import globals
 from pynn_spinnaker.simulator import state
@@ -193,10 +194,6 @@ class IF_curr_ca2_adaptive_dual_exp(StandardCellType):
     # --------------------------------------------------------------------------
     # Internal SpiNNaker properties
     # --------------------------------------------------------------------------
-    # How many of these neurons per core can
-    # a SpiNNaker neuron processor handle
-    _max_neurons_per_core = 512
-
     _neuron_region_class = regions.Neuron
 
     _directly_connectable = False
@@ -209,6 +206,15 @@ class IF_curr_ca2_adaptive_dual_exp(StandardCellType):
 
     # Set intrinsic plasticity parameter map
     _intrinsic_plasticity_param_map = intrinsic_plasticity_param_map
+
+    # --------------------------------------------------------------------------
+    # Internal SpiNNaker methods
+    # --------------------------------------------------------------------------
+    # How many of these neurons per core can
+    # a SpiNNaker neuron processor handle
+    _calc_max_neurons_per_core = partial(calc_max_neurons_per_core,
+                                         neuron_update_cpu_cycles=200,
+                                         synapse_shape_cpu_cycles=28)
 
 # ------------------------------------------------------------------------------
 # BCPNNSynapse
