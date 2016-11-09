@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <cstring>
 
-// Common includes
-#include "common/disable_interrupts.h"
-#include "common/exp_decay_lut.h"
-#include "common/fixed_point_number.h"
-#include "common/log.h"
-#include "common/spinnaker.h"
+// Rig CPP common includes
+#include "rig_cpp_common/disable_interrupts.h"
+#include "rig_cpp_common/exp_decay_lut.h"
+#include "rig_cpp_common/fixed_point_number.h"
+#include "rig_cpp_common/log.h"
+#include "rig_cpp_common/spinnaker.h"
 
 // Synapse processor includes
 #include "synapse_processor/plasticity/post_events.h"
